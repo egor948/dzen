@@ -1,6 +1,6 @@
 name: Auto RSS Update
 
-# Расписание: 4 раза в день + возможность ручного запуска
+# Расписание: 10:00, 14:00, 18:00, 22:00 и возможность ручного запуска
 on:
   schedule:
     - cron: '0 10 * * *'
@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+        with:
+          persist-credentials: true  # чтобы пуш работал без PAT
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -32,18 +34,12 @@ jobs:
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
           SESSION_STRING: ${{ secrets.SESSION_STRING }}
-          YANDEX_FOLDER_ID: ${{ secrets.YANDEX_FOLDER_ID }}
           YANDEX_API_KEY: ${{ secrets.YANDEX_API_KEY }}
-        run: |
-          python main.py
+          YANDEX_FOLDER_ID: ${{ secrets.YANDEX_FOLDER_ID }}
+        run: python main.py
 
       - name: Commit RSS changes
-        env:
-          GITHUB_PAT: ${{ secrets.PAT }}
         run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git remote set-url origin https://x-access-token:${GITHUB_PAT}@github.com/egor948/dzen.git
           git add rss.xml
           git commit -m "Auto-update RSS" || echo "No changes to commit"
           git push origin main
