@@ -1,6 +1,5 @@
 name: Auto RSS Update
 
-# Расписание: 4 раза в день и возможность ручного запуска
 on:
   schedule:
     - cron: '0 10 * * *'
@@ -33,8 +32,10 @@ jobs:
           API_HASH: ${{ secrets.API_HASH }}
           SESSION_STRING: ${{ secrets.SESSION_STRING }}
           GEMINI_KEY: ${{ secrets.GEMINI_KEY }}
+          PAT: ${{ secrets.PAT }}
         run: |
           python main.py
+
 
       - name: Commit RSS changes
         env:
