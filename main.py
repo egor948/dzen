@@ -12,7 +12,7 @@ import asyncio
 # Telethon
 API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
-client = TelegramClient("session", API_ID, API_HASH)
+client = TelegramClient("session", API_ID, API_HASH).start(bot_token=os.environ['BOT_TOKEN']
 
 # список каналов
 CHANNELS = [
