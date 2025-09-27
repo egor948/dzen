@@ -10,10 +10,22 @@ import xml.dom.minidom as minidom
 import asyncio
 
 # ================= НАСТРОЙКИ =================
-API_ID = int(os.environ.get("API_ID"))
+API_ID = os.environ.get("API_ID")
 API_HASH = os.environ.get("API_HASH")
-SESSION_STRING = os.environ.get("SESSION_STRING")  # session string, не бот
-client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
+SESSION_STRING = os.environ.get("SESSION_STRING")  # session string
+GEMINI_KEY = os.environ.get("GEMINI_KEY", "").strip()
+PAT = os.environ.get("PAT")  # GitHub Personal Access Token
+
+if not API_ID or not API_HASH or not SESSION_STRING:
+    raise ValueError("API_ID, API_HASH или SESSION_STRING не заданы!")
+
+if not GEMINI_KEY:
+    raise ValueError("GEMINI_KEY не задан!")
+
+if not PAT:
+    raise ValueError("PAT (GitHub token) не задан!")
+
+client = TelegramClient(StringSession(SESSION_STRING), int(API_ID), API_HASH)
 
 CHANNELS = [
     "breakevens",
@@ -25,21 +37,20 @@ CHANNELS = [
     "astonvillago"
 ]
 
-GEMINI_KEY = os.environ.get("GEMINI_KEY", "").strip()
 MODEL_NAME = "gemini-2.0-flash"
 
-GIT_REPO_PATH = r"D:\DISC G\dzen\github\dzen"
-RSS_FILE_PATH = r"D:\DISC G\dzen\github\dzen\rss.xml"
-GITHUB_USER = "egor948"
-GITHUB_EMAIL = "Wifi6030@gmail.com"
+# Относительные пути для GitHub Actions
+GIT_REPO_PATH = os.getcwd()
+RSS_FILE_PATH = os.path.join(GIT_REPO_PATH, "rss.xml")
+GITHUB_USER = "GitHub Actions"
+GITHUB_EMAIL = "actions@github.com"
 BRANCH = "main"
 COMMIT_MESSAGE = "Автообновление RSS"
 # ===============================================
 
 
 def run_git_command(command, cwd=GIT_REPO_PATH):
-    result = subprocess.run(command, cwd=cwd, text=True, shell=True,
-                            capture_output=True)
+    result = subprocess.run(command, cwd=cwd, text=True, shell=True, capture_output=True)
     if result.returncode != 0:
         print("Ошибка:", result.stderr)
     else:
@@ -111,6 +122,8 @@ def create_rss(content):
 def push_to_github():
     run_git_command(f'git config user.name "{GITHUB_USER}"')
     run_git_command(f'git config user.email "{GITHUB_EMAIL}"')
+    # Устанавливаем remote с PAT
+    run_git_command(f'git remote set-url origin https://x-access-token:{PAT}@github.com/egor948/dzen.git')
     run_git_command(f'git add "{RSS_FILE_PATH}"')
     run_git_command(f'git commit -m "{COMMIT_MESSAGE}" || echo "No changes to commit"')
     run_git_command(f'git push origin {BRANCH}')
