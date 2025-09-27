@@ -1,5 +1,6 @@
 name: Auto RSS Update
 
+# Расписание: 4 раза в день и возможность ручного запуска
 on:
   schedule:
     - cron: '0 10 * * *'
@@ -9,7 +10,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  update-rss:
     runs-on: ubuntu-latest
 
     steps:
@@ -24,7 +25,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install telethon
+          pip install telethon requests
 
       - name: Run RSS script
         env:
@@ -33,3 +34,13 @@ jobs:
           SESSION_STRING: ${{ secrets.SESSION_STRING }}
         run: |
           python main.py
+
+      - name: Commit RSS changes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add rss.xml
+          git commit -m "Auto-update RSS" || echo "No changes to commit"
+          git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git main
