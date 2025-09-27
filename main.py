@@ -11,7 +11,7 @@ import asyncio
 # ================= НАСТРОЙКИ =================
 API_ID = os.environ.get("API_ID")
 API_HASH = os.environ.get("API_HASH")
-SESSION_STRING = os.environ.get("SESSION_STRING")
+SESSION_STRING = os.environ.get("SESSION_STRING")  # session string
 GEMINI_KEY = os.environ.get("GEMINI_KEY", "").strip()
 
 if not API_ID or not API_HASH or not SESSION_STRING:
@@ -34,15 +34,15 @@ CHANNELS = [
 
 MODEL_NAME = "gemini-2.0-flash"
 
-RSS_FILE_PATH = "rss.xml"
+# Пути
+GIT_REPO_PATH = os.getcwd()
+RSS_FILE_PATH = os.path.join(GIT_REPO_PATH, "rss.xml")
 # ===============================================
-
 
 async def get_channel_posts():
     all_posts = []
     now = datetime.datetime.utcnow()
     cutoff = now - timedelta(hours=4)
-
     async with client:
         for ch in CHANNELS:
             async for msg in client.iter_messages(ch, limit=500):
@@ -50,20 +50,26 @@ async def get_channel_posts():
                     all_posts.append({"text": msg.text, "date": msg.date})
     return all_posts
 
-
 def ask_gemini(text):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent"
-    headers = {"Content-Type": "application/json", "X-goog-api-key": GEMINI_KEY}
+    headers = {
+        "Content-Type": "application/json",
+        "X-goog-api-key": GEMINI_KEY
+    }
     data = {"contents": [{"parts": [{"text": text}]}]}
 
     try:
         response = requests.post(url, headers=headers, json=data)
         response.raise_for_status()
-        return response.json()["contents"][0]["parts"][0]["text"]
     except Exception as e:
         print("Ошибка при запросе к Gemini:", e)
         return None
 
+    try:
+        return response.json()["contents"][0]["parts"][0]["text"]
+    except (KeyError, IndexError) as e:
+        print("Не удалось разобрать ответ Gemini:", e)
+        return None
 
 def create_rss(content):
     rss = Element("rss", version="2.0")
@@ -81,7 +87,6 @@ def create_rss(content):
     with open(RSS_FILE_PATH, "w", encoding="utf-8") as f:
         f.write(xml_str)
 
-
 # ================= ОСНОВНОЙ ЗАПУСК =================
 if __name__ == "__main__":
     posts = asyncio.run(get_channel_posts())
@@ -92,6 +97,6 @@ if __name__ == "__main__":
         gpt_result = ask_gemini(combined_text)
         if gpt_result:
             create_rss(gpt_result)
-            print("✅ RSS создан")
+            print("✅ RSS создан успешно")
         else:
             print("Не удалось получить результат от Gemini")
