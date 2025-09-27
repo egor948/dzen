@@ -1,6 +1,6 @@
 name: Auto RSS Update
 
-# Запуск 4 раза в день и возможность ручного запуска
+# Расписание: 4 раза в день + возможность ручного запуска
 on:
   schedule:
     - cron: '0 10 * * *'
@@ -8,9 +8,6 @@ on:
     - cron: '0 18 * * *'
     - cron: '0 22 * * *'
   workflow_dispatch:
-
-permissions:
-  contents: write  # даём Actions право пушить
 
 jobs:
   build:
@@ -35,16 +32,18 @@ jobs:
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
           SESSION_STRING: ${{ secrets.SESSION_STRING }}
-          GEMINI_KEY: ${{ secrets.GEMINI_KEY }}
+          YANDEX_FOLDER_ID: ${{ secrets.YANDEX_FOLDER_ID }}
+          YANDEX_API_KEY: ${{ secrets.YANDEX_API_KEY }}
         run: |
           python main.py
 
       - name: Commit RSS changes
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # используем встроенный токен
+          GITHUB_PAT: ${{ secrets.PAT }}
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
+          git remote set-url origin https://x-access-token:${GITHUB_PAT}@github.com/egor948/dzen.git
           git add rss.xml
           git commit -m "Auto-update RSS" || echo "No changes to commit"
-          git push
+          git push origin main
