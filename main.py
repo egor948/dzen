@@ -4,7 +4,7 @@ from datetime import timedelta
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from xml.etree.ElementTree import Element, SubElement, tostring
-import xml.dom.minidom as minidom
+import xml.dom.minidom as minidom  # <-- добавлено
 import asyncio
 import subprocess
 
