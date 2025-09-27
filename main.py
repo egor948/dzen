@@ -107,4 +107,39 @@ def create_rss(content):
     item = SubElement(channel, "item")
     SubElement(item, "title").text = "Главные события за 4 часа"
     SubElement(item, "description").text = content
-    SubElement(item, "pubDate").text = datetime.datetime.utcnow().strftime("%a, %d %b %Y %H:%
+    SubElement(item, "pubDate").text = datetime.datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT")
+
+    xml_str = xml.dom.minidom.parseString(tostring(rss)).toprettyxml(indent="  ")
+    with open(RSS_FILE_PATH, "w", encoding="utf-8") as f:
+        f.write(xml_str)
+
+
+def push_to_github():
+    run_git_command(f'git config user.name "{GITHUB_USER}"')
+    run_git_command(f'git config user.email "{GITHUB_EMAIL}"')
+    # Устанавливаем remote с PAT
+    run_git_command(f'git remote set-url origin https://x-access-token:{PAT}@github.com/egor948/dzen.git')
+    run_git_command(f'git add "{RSS_FILE_PATH}"')
+    run_git_command(f'git commit -m "{COMMIT_MESSAGE}" || echo "No changes to commit"')
+    run_git_command(f'git push origin {BRANCH}')
+
+
+# ================= ОСНОВНОЙ ЗАПУСК =================
+async def main():
+    posts = await get_channel_posts()
+    if not posts:
+        print("Нет новых постов за 4 часа")
+        return
+
+    combined_text = "\n\n".join([p["text"] for p in posts])
+    gpt_result = ask_gemini(combined_text)
+    if gpt_result:
+        create_rss(gpt_result)
+        push_to_github()
+        print("✅ Всё готово: RSS создан и выгружен в GitHub")
+    else:
+        print("Не удалось получить результат от Gemini")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
