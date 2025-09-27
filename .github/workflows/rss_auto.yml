@@ -1,6 +1,6 @@
 name: Auto RSS Update
 
-# Расписание: 10:00, 14:00, 18:00, 22:00 UTC + возможность ручного запуска
+# Запуск 4 раза в день и возможность ручного запуска
 on:
   schedule:
     - cron: '0 10 * * *'
@@ -14,23 +14,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Клонируем репозиторий
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      # Устанавливаем Python
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
-      # Устанавливаем зависимости
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install telethon requests
 
-      # Запускаем скрипт для генерации RSS
       - name: Run RSS script
         env:
           API_ID: ${{ secrets.API_ID }}
@@ -39,3 +35,13 @@ jobs:
           GEMINI_KEY: ${{ secrets.GEMINI_KEY }}
         run: |
           python main.py
+
+      - name: Commit RSS changes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add rss.xml
+          git commit -m "Auto-update RSS" || echo "No changes to commit"
+          git push
