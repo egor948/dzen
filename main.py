@@ -12,8 +12,9 @@ import asyncio
 # Telethon
 API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
-BOT_TOKEN = os.environ['BOT_TOKEN']
-client = TelegramClient("session", API_ID, API_HASH).start(bot_token=BOT_TOKEN)
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+
+client = TelegramClient("session", API_ID, API_HASH)
 
 # список каналов
 CHANNELS = [
@@ -31,8 +32,7 @@ GEMINI_KEY = os.environ.get("GEMINI_KEY")
 MODEL_NAME = "gemini-2.0-flash"
 
 # GitHub
-GIT_REPO_PATH = r"D:\DISC G\dzen\github\dzen"
-RSS_FILE_PATH = r"D:\DISC G\dzen\github\dzen\rss.xml"
+RSS_FILE_PATH = "rss.xml"
 GITHUB_USER = "egor948"
 GITHUB_EMAIL = "Wifi6030@gmail.com"
 BRANCH = "main"
@@ -40,9 +40,9 @@ COMMIT_MESSAGE = "Автообновление RSS"
 # ===============================================
 
 
-def run_git_command(command, cwd=GIT_REPO_PATH):
+def run_git_command(command):
     """Выполняет git-команды"""
-    result = subprocess.run(command, cwd=cwd, text=True, shell=True,
+    result = subprocess.run(command, text=True, shell=True,
                             capture_output=True)
     if result.returncode != 0:
         print("Ошибка:", result.stderr)
@@ -54,6 +54,8 @@ async def get_channel_posts():
     all_posts = []
     now = datetime.datetime.utcnow()
     cutoff = now - timedelta(hours=4)  # берём только посты за последние 4 часа
+
+    await client.start(bot_token=BOT_TOKEN)
 
     async with client:
         for ch in CHANNELS:
@@ -71,7 +73,7 @@ def ask_gemini(text):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent"
     headers = {
         "Content-Type": "application/json",
-        "X-goog-api-key": GEMINI_API_KEY
+        "X-goog-api-key": GEMINI_KEY
     }
     data = {
         "contents": [{"parts": [{"text": text}]}]
@@ -85,7 +87,11 @@ def ask_gemini(text):
         print("Ответ сервера:", r.text)
         return None
 
-    return r.json()["contents"][0]["parts"][0]["text"]
+    try:
+        return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+    except Exception:
+        print("Некорректный ответ Gemini:", r.text)
+        return None
 
 
 def create_rss(content):
@@ -117,7 +123,13 @@ def push_to_github():
 
 # ========= ОСНОВНОЙ ЗАПУСК =========
 if __name__ == "__main__":
-    posts = asyncio.run(get_channel_posts())
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        posts = loop.run_until_complete(get_channel_posts())
+    finally:
+        loop.close()
+
     if not posts:
         print("Нет новых постов за 4 часа")
     else:
