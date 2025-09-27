@@ -4,14 +4,14 @@ from datetime import timedelta
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from xml.etree.ElementTree import Element, SubElement, tostring
-import xml.dom.minidom as minidom  # <-- добавлено
+import xml.dom.minidom as minidom
 import asyncio
 import subprocess
 
-# ====== Настройки ======
+# ================= НАСТРОЙКИ =================
 API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
-SESSION_STRING = os.environ.get("SESSION_STRING")
+SESSION_STRING = os.environ.get("SESSION_STRING")  # session string
 
 if not API_ID or not API_HASH or not SESSION_STRING:
     raise ValueError("API_ID, API_HASH или SESSION_STRING не заданы!")
@@ -28,13 +28,26 @@ CHANNELS = [
     "astonvillago"
 ]
 
-RSS_FILE = "rss.xml"
+# GitHub
+GIT_REPO_PATH = os.getcwd()
+RSS_FILE_PATH = os.path.join(GIT_REPO_PATH, "rss.xml")
+GITHUB_USER = "GitHub Actions"
+GITHUB_EMAIL = "actions@github.com"
+BRANCH = "main"
+COMMIT_MESSAGE = "Автообновление RSS"
+# ===============================================
 
-# ====== Функции ======
+def run_git_command(command, cwd=GIT_REPO_PATH):
+    result = subprocess.run(command, cwd=cwd, text=True, shell=True, capture_output=True)
+    if result.returncode != 0:
+        print("Ошибка:", result.stderr)
+    else:
+        print(result.stdout)
+
 async def get_channel_posts():
     all_posts = []
     now = datetime.datetime.utcnow()
-    cutoff = now - timedelta(hours=24)
+    cutoff = now - timedelta(hours=24)  # последние 24 часа
 
     async with client:
         for ch in CHANNELS:
@@ -55,25 +68,27 @@ def create_rss(posts):
 
     for p in posts:
         item = SubElement(channel, "item")
-        SubElement(item, "title").text = p["text"][:50] + "..."  # короткий заголовок
+        SubElement(item, "title").text = p["text"][:50] + "..."
         SubElement(item, "description").text = p["text"]
         SubElement(item, "pubDate").text = p["date"].strftime("%a, %d %b %Y %H:%M:%S GMT")
 
-    xml_str = xml.dom.minidom.parseString(tostring(rss)).toprettyxml(indent="  ")
-    with open(RSS_FILE, "w", encoding="utf-8") as f:
+    xml_str = minidom.parseString(tostring(rss)).toprettyxml(indent="  ")
+    with open(RSS_FILE_PATH, "w", encoding="utf-8") as f:
         f.write(xml_str)
 
-def push_changes():
-    subprocess.run("git add rss.xml", shell=True, check=False)
-    subprocess.run('git commit -m "Auto-update RSS" || echo "No changes"', shell=True, check=False)
-    subprocess.run("git push", shell=True, check=False)
+def push_to_github():
+    run_git_command(f'git config user.name "{GITHUB_USER}"')
+    run_git_command(f'git config user.email "{GITHUB_EMAIL}"')
+    run_git_command(f'git add "{RSS_FILE_PATH}"')
+    run_git_command(f'git commit -m "{COMMIT_MESSAGE}" || echo "No changes to commit"')
+    run_git_command(f'git push origin {BRANCH}')
 
-# ====== Основной запуск ======
+# ================= ОСНОВНОЙ ЗАПУСК =================
 if __name__ == "__main__":
     posts = asyncio.run(get_channel_posts())
     if not posts:
         print("Нет новых постов за 24 часа")
     else:
         create_rss(posts)
-        push_changes()
-        print("✅ RSS создан и отправлен в репозиторий")
+        push_to_github()
+        print("✅ Всё готово: RSS создан и выгружен в GitHub")
