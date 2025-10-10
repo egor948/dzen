@@ -26,14 +26,15 @@ CHANNELS = [
 ]
 
 # ================== Cloudflare AI ==================
-CF_ACCOUNT_ID = os.environ.get("CF_ACCOUNT_ID")
-CF_API_TOKEN = os.environ.get("CF_API_TOKEN")
+# ⬇️⬇️⬇️ ИЗМЕНЕНИЕ ЗДЕСЬ: Добавляем .strip() для очистки секретов от случайных пробелов/переносов ⬇️⬇️⬇️
+CF_ACCOUNT_ID = os.environ.get("CF_ACCOUNT_ID", "").strip()
+CF_API_TOKEN = os.environ.get("CF_API_TOKEN", "").strip()
 
 if not CF_ACCOUNT_ID or not CF_API_TOKEN:
     raise ValueError("CF_ACCOUNT_ID или CF_API_TOKEN не заданы в секретах GitHub!")
 
-# Cloudflare предоставляет доступ к той же самой модели Mistral 7B
-MODEL_ID = "@cf/meta/llama-2-7b-chat-fp16" # Используем Llama-2-7B, она стабильна на CF
+# Cloudflare предоставляет доступ к модели Llama-2-7B, она стабильна
+MODEL_ID = "@cf/meta/llama-2-7b-chat-fp16"
 API_URL = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{MODEL_ID}"
 
 
@@ -42,7 +43,6 @@ RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
 # ===============================================
 
 async def get_channel_posts():
-    # ... (эта функция остается без изменений)
     all_posts = []
     now = datetime.datetime.now(datetime.timezone.utc)
     cutoff = now - timedelta(hours=24)
@@ -79,7 +79,7 @@ def ask_cf_ai_to_write_article(text_digest):
 
     try:
         response = requests.post(API_URL, headers=headers, json=data, timeout=180)
-        response.raise_for_status() # Вызовет ошибку если статус не 200
+        response.raise_for_status()
 
         result = response.json()
         
@@ -98,7 +98,6 @@ def ask_cf_ai_to_write_article(text_digest):
         return None
 
 def create_rss_feed(generated_content):
-    # ... (эта функция остается без изменений)
     if not generated_content:
         print("Контент не был сгенерирован, RSS-файл не будет создан.")
         return
@@ -112,7 +111,7 @@ def create_rss_feed(generated_content):
     SubElement(channel, "title").text = "Футбольные Новости от AI"
     SubElement(channel, "link").text = f"https://github.com/{os.environ.get('GITHUB_REPOSITORY', '')}"
     SubElement(channel, "description").text = "Самые свежие футбольные новости, сгенерированные нейросетью"
-    item = SubElement(channel, "item")
+    item = SubElement(item, "item")
     SubElement(item, "title").text = title
     SubElement(item, "description").text = description_html
     SubElement(item, "pubDate").text = datetime.datetime.now(datetime.timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
@@ -125,7 +124,6 @@ def create_rss_feed(generated_content):
 
 
 async def main():
-    # ... (эта функция остается без изменений)
     posts = await get_channel_posts()
     if not posts:
         print("Новых постов для обработки нет. Завершение работы.")
