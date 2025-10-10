@@ -1,9 +1,8 @@
 # main.py
 import os
-import subprocess
+import requests
 import datetime
 from datetime import timedelta
-import google.generativeai as genai
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from xml.etree.ElementTree import Element, SubElement, tostring
@@ -17,7 +16,7 @@ API_HASH = os.environ.get("API_HASH")
 SESSION_STRING = os.environ.get("SESSION_STRING")
 
 if not API_ID or not API_HASH or not SESSION_STRING:
-    raise ValueError("Один из секретов Telegram (API_ID, API_HASH, SESSION_STRING) не задан!")
+    raise ValueError("Один из секретов Telegram не задан!")
 
 client = TelegramClient(StringSession(SESSION_STRING), int(API_ID), API_HASH)
 
@@ -26,21 +25,23 @@ CHANNELS = [
     "lexusarsenal", "sixELCE", "astonvillago"
 ]
 
-# ================== Google Gemini ==================
+# ================== Google Gemini через прокси ==================
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY не задан!")
-genai.configure(api_key=GEMINI_API_KEY)
 
-# === ФИНАЛЬНОЕ ИСПРАВЛЕНИЕ: Используем ПОЛНОЕ имя модели для совместимости ===
-model = genai.GenerativeModel('models/gemini-pro')
+# URL для прокси-сервера Gemini. 
+# ВАЖНО: Этот URL - пример. Вам нужно найти реальный прокси-сервис
+# и заменить его URL здесь. 
+# Он должен вести к модели gemini-pro и методу generateContent.
+GEMINI_PROXY_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
+
 
 # GitHub - Путь к файлу
 RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
 # ===============================================
 
 async def get_channel_posts():
-    """Асинхронно собирает посты из указанных каналов за последние 24 часа."""
     all_posts = []
     now = datetime.datetime.now(datetime.timezone.utc)
     cutoff = now - timedelta(hours=24)
@@ -50,10 +51,8 @@ async def get_channel_posts():
             print(f"Парсинг канала: {channel_name}...")
             try:
                 async for msg in client.iter_messages(channel_name, limit=100):
-                    if msg.date < cutoff:
-                        break
-                    if msg.text:
-                        all_posts.append({"text": msg.text, "date": msg.date})
+                    if msg.date < cutoff: break
+                    if msg.text: all_posts.append({"text": msg.text, "date": msg.date})
             except Exception as e:
                 print(f"Не удалось получить посты из канала '{channel_name}': {e}")
     
@@ -63,36 +62,50 @@ async def get_channel_posts():
 
 
 def ask_gemini_to_write_article(text_digest):
-    """Отправляет дайджест новостей в Gemini и просит сгенерировать статью."""
-    print("Отправка запроса в Google Gemini...")
+    """Отправляет дайджест новостей в Gemini через прямой HTTP-запрос (прокси)."""
+    print("Отправка запроса в Google Gemini через прокси...")
+    
+    headers = {"Content-Type": "application/json"}
+    
     prompt = f"""
-Ты — профессиональный спортивный журналист. Твоя задача — проанализировать сырой дайджест новостей из Telegram-каналов и написать на его основе одну цельную, интересную статью для Яндекс.Дзен.
-
-Требования к статье:
-1.  **Заголовок:** Придумай яркий, интригующий и кликабельный заголовок. Он должен быть на первой строке.
-2.  **Структура:** Статья должна состоять из введения, основной части (2-4 абцаза) и заключения.
-3.  **Содержание:** Объедини связанные новости в общие темы. Не перечисляй все подряд. Выбери самое важное и интересное.
-4.  **Стиль:** Пиши живым, динамичным языком. Избегай канцеляризмов и прямого копирования. Сделай глубокий рерайт.
-5.  **Фильтрация:** Полностью игнорируй любую рекламу, букмекерские конторы, личные мнения авторов каналов и повторяющуюся информацию.
-
-ВАЖНО: Твой ответ должен начинаться с заголовка, а затем, с новой строки, идти основной текст статьи.
-
+Ты — профессиональный спортивный журналист... (Ваш промпт без изменений)
+...
 Вот дайджест новостей для анализа:
 ---
 {text_digest}
 ---
 """
+    
+    data = {
+        "contents": [{
+            "parts": [{
+                "text": prompt
+            }]
+        }]
+    }
+
     try:
-        response = model.generate_content(prompt)
+        response = requests.post(GEMINI_PROXY_URL, headers=headers, json=data, timeout=120)
+        response.raise_for_status()  # Вызовет ошибку, если код ответа не 2xx
+
+        result = response.json()
+        generated_text = result['candidates'][0]['content']['parts'][0]['text']
+        
         print("Ответ от Gemini успешно получен.")
-        return response.text
-    except Exception as e:
-        print(f"Ошибка при обращении к Gemini API: {e}")
+        return generated_text
+    except requests.exceptions.RequestException as e:
+        print(f"Ошибка HTTP-запроса к Gemini API: {e}")
+        # Печатаем тело ответа, если он есть, для диагностики
+        if e.response is not None:
+            print(f"Ответ сервера: {e.response.text}")
+        return None
+    except (KeyError, IndexError) as e:
+        print(f"Не удалось разобрать ответ от Gemini. Структура ответа изменилась? Ошибка: {e}")
+        print(f"Полученный ответ: {result}")
         return None
 
 
 def create_rss_feed(generated_content):
-    """Создает и сохраняет RSS-файл из сгенерированного контента."""
     if not generated_content:
         print("Контент не был сгенерирован, RSS-файл не будет создан.")
         return
@@ -106,26 +119,23 @@ def create_rss_feed(generated_content):
 
     rss = Element("rss", version="2.0")
     channel = SubElement(rss, "channel")
+    # ... (остальная часть функции без изменений)
     SubElement(channel, "title").text = "Футбольные Новости от AI"
     SubElement(channel, "link").text = f"https://github.com/{os.environ.get('GITHUB_REPOSITORY', '')}"
     SubElement(channel, "description").text = "Самые свежие футбольные новости, сгенерированные нейросетью"
-    
     item = SubElement(channel, "item")
     SubElement(item, "title").text = title
     SubElement(item, "description").text = description_html
     SubElement(item, "pubDate").text = datetime.datetime.now(datetime.timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
     SubElement(item, "guid").text = str(int(datetime.datetime.now(datetime.timezone.utc).timestamp()))
-
     xml_string = tostring(rss, 'utf-8')
     pretty_xml = minidom.parseString(xml_string).toprettyxml(indent="  ")
-
     with open(RSS_FILE_PATH, "w", encoding="utf-8") as f:
         f.write(pretty_xml)
     print(f"✅ RSS-лента успешно сохранена в файл: {RSS_FILE_PATH}")
 
 
 async def main():
-    """Основная функция, запускающая весь процесс."""
     posts = await get_channel_posts()
     if not posts:
         print("Новых постов для обработки нет. Завершение работы.")
@@ -133,7 +143,7 @@ async def main():
 
     combined_text = "\n\n---\n\n".join([p["text"] for p in posts])
     
-    max_length = 30000 # Немного увеличим лимит для gemini-pro
+    max_length = 30000
     if len(combined_text) > max_length:
         print(f"Текст слишком длинный, обрезаем до {max_length} символов.")
         combined_text = combined_text[:max_length]
