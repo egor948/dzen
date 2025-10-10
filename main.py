@@ -31,7 +31,9 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY не задан!")
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash-latest') # Используем быструю и дешевую модель
+
+# === ИСПРАВЛЕНИЕ ЗДЕСЬ: Используем стабильную и проверенную модель ===
+model = genai.GenerativeModel('gemini-pro')
 
 # GitHub - Путь к файлу
 RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
@@ -49,13 +51,12 @@ async def get_channel_posts():
             try:
                 async for msg in client.iter_messages(channel_name, limit=100):
                     if msg.date < cutoff:
-                        break # Сообщения идут от новых к старым, можно прерваться
+                        break
                     if msg.text:
                         all_posts.append({"text": msg.text, "date": msg.date})
             except Exception as e:
                 print(f"Не удалось получить посты из канала '{channel_name}': {e}")
     
-    # Сортируем посты по дате (от старых к новым) для лучшего понимания моделью
     all_posts.sort(key=lambda p: p["date"])
     print(f"Найдено {len(all_posts)} новых постов.")
     return all_posts
@@ -96,15 +97,11 @@ def create_rss_feed(generated_content):
         print("Контент не был сгенерирован, RSS-файл не будет создан.")
         return
 
-    # Разделяем сгенерированный текст на заголовок (первая строка) и основной контент
     parts = generated_content.strip().split('\n', 1)
     title = parts[0].strip()
     description_text = parts[1].strip() if len(parts) > 1 else "Нет содержания."
-
-    # === ИСПРАВЛЕНИЕ ЗДЕСЬ ===
-    # Сначала заменяем переносы строк на <br/>
+    
     formatted_description = description_text.replace('\n', '<br/>')
-    # Затем вставляем отформатированный текст в CDATA
     description_html = f"<![CDATA[{formatted_description}]]>"
 
     rss = Element("rss", version="2.0")
@@ -117,7 +114,6 @@ def create_rss_feed(generated_content):
     SubElement(item, "title").text = title
     SubElement(item, "description").text = description_html
     SubElement(item, "pubDate").text = datetime.datetime.now(datetime.timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
-    # GUID важен, чтобы Дзен понимал, что это новый пост
     SubElement(item, "guid").text = str(int(datetime.datetime.now(datetime.timezone.utc).timestamp()))
 
     xml_string = tostring(rss, 'utf-8')
@@ -135,10 +131,8 @@ async def main():
         print("Новых постов для обработки нет. Завершение работы.")
         return
 
-    # Объединяем тексты постов в один большой дайджест
     combined_text = "\n\n---\n\n".join([p["text"] for p in posts])
     
-    # Ограничиваем объем текста для экономии токенов и ускорения работы
     max_length = 25000
     if len(combined_text) > max_length:
         print(f"Текст слишком длинный, обрезаем до {max_length} символов.")
