@@ -33,7 +33,7 @@ if not GEMINI_API_KEY:
 # ⬇️⬇️⬇️ ВАШ URL-адрес от Vercel уже здесь ⬇️⬇️⬇️
 VERCEL_PROXY_DOMAIN = "geminiproxy-sandy-chi.vercel.app"
 
-GEMINI_PROXY_URL = f"https://{VERCEL_PROXY_DOMAIN}/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
+GEMINI_PROXY_URL = f"https://{VERCEL_PROXY_DOMAIN}/v1/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
 
 
 # GitHub - Путь к файлу
