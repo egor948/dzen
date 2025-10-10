@@ -32,7 +32,8 @@ CF_API_TOKEN = os.environ.get("CF_API_TOKEN", "").strip()
 if not CF_ACCOUNT_ID or not CF_API_TOKEN:
     raise ValueError("CF_ACCOUNT_ID или CF_API_TOKEN не заданы в секретах GitHub!")
 
-MODEL_ID = "@cf/meta/llama-2-7b-chat-fp16"
+# ⬇️⬇️⬇️ ИЗМЕНЕНИЕ 1: Выбираем модель Mistral-7B с большей "памятью" (контекстным окном) ⬇️⬇️⬇️
+MODEL_ID = "@cf/mistral/mistral-7b-instruct-v0.1"
 API_URL = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{MODEL_ID}"
 
 
@@ -64,7 +65,7 @@ def ask_cf_ai_to_write_article(text_digest):
     
     headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
     
-    prompt = f"""Ты — профессиональный спортивный журналист. Проанализируй новости ниже и напиши на их основе одну цельную, интересную статью для Яндекс.Дзен. Придумай яркий заголовок (на первой строке), затем напиши саму статью. Игнорируй рекламу и личные мнения.
+    prompt = f"""[INST] Ты — профессиональный спортивный журналист. Проанализируй новости ниже и напиши на их основе одну цельную, интересную статью для Яндекс.Дзен. Придумай яркий заголовок (на первой строке), затем напиши саму статью. Игнорируй рекламу и личные мнения. [/INST]
 
 НОВОСТИ:
 ---
@@ -129,20 +130,19 @@ async def main():
     
     combined_text = "\n\n---\n\n".join([p["text"] for p in posts])
     
-    # ИЗМЕНЕНИЕ 1: Увеличиваем лимит символов до разумного максимума
-    max_length = 20000
+    # ⬇️⬇️⬇️ ИЗМЕНЕНИЕ 2: Устанавливаем БЕЗОПАСНЫЙ лимит для новой модели ⬇️⬇️⬇️
+    max_length = 25000 # Новая модель позволяет обрабатывать больше текста
     if len(combined_text) > max_length:
         print(f"Текст слишком длинный ({len(combined_text)} симв.), обрезаем до {max_length} символов.")
         combined_text = combined_text[:max_length]
     
     generated_article = ask_cf_ai_to_write_article(combined_text)
     
-    # ИЗМЕНЕНИЕ 2: Выводим в лог ответ от AI для отладки
     print("\n--- НАЧАЛО ОТВЕТА ОТ AI ---\n")
     print(generated_article)
     print("\n--- КОНЕЦ ОТВЕТА ОТ AI ---\n")
     
-    if generated_article:
+    if generated_article and len(generated_article) > 20: # Добавим проверку на минимальную длину
         create_rss_feed(generated_article)
 
 if __name__ == "__main__":
