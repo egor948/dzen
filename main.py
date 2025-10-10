@@ -26,14 +26,12 @@ CHANNELS = [
 ]
 
 # ================== Cloudflare AI ==================
-# ⬇️⬇️⬇️ ИЗМЕНЕНИЕ ЗДЕСЬ: Добавляем .strip() для очистки секретов от случайных пробелов/переносов ⬇️⬇️⬇️
 CF_ACCOUNT_ID = os.environ.get("CF_ACCOUNT_ID", "").strip()
 CF_API_TOKEN = os.environ.get("CF_API_TOKEN", "").strip()
 
 if not CF_ACCOUNT_ID or not CF_API_TOKEN:
     raise ValueError("CF_ACCOUNT_ID или CF_API_TOKEN не заданы в секретах GitHub!")
 
-# Cloudflare предоставляет доступ к модели Llama-2-7B, она стабильна
 MODEL_ID = "@cf/meta/llama-2-7b-chat-fp16"
 API_URL = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{MODEL_ID}"
 
@@ -128,12 +126,22 @@ async def main():
     if not posts:
         print("Новых постов для обработки нет. Завершение работы.")
         return
+    
     combined_text = "\n\n---\n\n".join([p["text"] for p in posts])
-    max_length = 10000
+    
+    # ИЗМЕНЕНИЕ 1: Увеличиваем лимит символов до разумного максимума
+    max_length = 20000
     if len(combined_text) > max_length:
-        print(f"Текст слишком длинный, обрезаем до {max_length} символов.")
+        print(f"Текст слишком длинный ({len(combined_text)} симв.), обрезаем до {max_length} символов.")
         combined_text = combined_text[:max_length]
+    
     generated_article = ask_cf_ai_to_write_article(combined_text)
+    
+    # ИЗМЕНЕНИЕ 2: Выводим в лог ответ от AI для отладки
+    print("\n--- НАЧАЛО ОТВЕТА ОТ AI ---\n")
+    print(generated_article)
+    print("\n--- КОНЕЦ ОТВЕТА ОТ AI ---\n")
+    
     if generated_article:
         create_rss_feed(generated_article)
 
