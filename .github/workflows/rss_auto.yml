@@ -1,46 +1,48 @@
+# .github/workflows/main.yml
 name: Auto RSS Update
 
-# Расписание: 4 раза в день и возможность ручного запуска
 on:
-  schedule:
-    - cron: '0 10 * * *'
-    - cron: '0 14 * * *'
-    - cron: '0 18 * * *'
-    - cron: '0 22 * * *'
+  # Позволяет запускать вручную из вкладки "Actions"
   workflow_dispatch:
+  # Запускает по расписанию (каждые 6 часов)
+  schedule:
+    - cron: '0 */6 * * *'
 
 jobs:
   update-rss:
     runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+    # КЛЮЧЕВОЙ МОМЕНТ: Даем права на запись в репозиторий
+    permissions:
+      contents: write
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+    steps:
+      - name: 1. Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 2. Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip' # Кэшируем зависимости для ускорения
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install telethon requests
+      - name: 3. Install dependencies
+        run: pip install -r requirements.txt
 
-      - name: Run RSS script
+      - name: 4. Run the main script
         env:
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
           SESSION_STRING: ${{ secrets.SESSION_STRING }}
-        run: |
-          python main.py
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python main.py # Убедитесь, что ваш скрипт называется main.py
 
-      - name: Commit RSS changes
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: 5. Commit and push if there are changes
         run: |
-          git config user.name "GitHub Actions"
+          git config user.name "GitHub Actions Bot"
           git config user.email "actions@github.com"
+          # Добавляем только если файл изменился
           git add rss.xml
-          git commit -m "Auto-update RSS" || echo "No changes to commit"
-          git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git main
+          # Коммитим только если есть что коммитить
+          git diff --staged --quiet || git commit -m "🗞️ Auto-update RSS feed"
+          git push
