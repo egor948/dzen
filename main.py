@@ -5,9 +5,10 @@ import datetime
 from datetime import timedelta
 from telethon import TelegramClient
 from telethon.sessions import StringSession
-from xml.etree.ElementTree import Element, SubElement, tostring
+import xml.etree.ElementTree as ET
 import xml.dom.minidom as minidom
 import asyncio
+import re
 
 # ================= НАСТРОЙКИ =================
 # Telegram
@@ -35,9 +36,9 @@ if not CF_ACCOUNT_ID or not CF_API_TOKEN:
 MODEL_ID = "@cf/mistral/mistral-7b-instruct-v0.1"
 API_URL = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{MODEL_ID}"
 
-
-# GitHub - Путь к файлу
+# ================== Прочие настройки ==================
 RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
+MAX_RSS_ITEMS = 20 # Максимальное количество статей в RSS-ленте
 # ===============================================
 
 async def get_channel_posts():
@@ -50,102 +51,179 @@ async def get_channel_posts():
             try:
                 async for msg in client.iter_messages(channel_name, limit=100):
                     if msg.date < cutoff: break
-                    if msg.text: all_posts.append({"text": msg.text, "date": msg.date})
+                    if msg.text: all_posts.append({"text": msg.text.strip(), "date": msg.date})
             except Exception as e:
                 print(f"Не удалось получить посты из канала '{channel_name}': {e}")
     all_posts.sort(key=lambda p: p["date"])
     print(f"Найдено {len(all_posts)} новых постов.")
-    return all_posts
+    # Используем dict.fromkeys для удаления дубликатов постов, сохраняя порядок
+    unique_posts = list(dict.fromkeys(p['text'] for p in all_posts))
+    return "\n\n---\n\n".join(unique_posts)
 
-
-def ask_cf_ai_to_write_article(text_digest):
-    """Отправляет дайджест новостей в Cloudflare AI и просит сгенерировать статью."""
-    print(f"Отправка запроса в Cloudflare AI модель: {MODEL_ID}...")
-    
+def _call_cloudflare_ai(prompt, max_tokens=1024):
+    """Внутренняя функция для вызова API Cloudflare."""
     headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
-    
-    prompt = f"""[INST] Ты — профессиональный спортивный журналист. Проанализируй новости ниже и напиши на их основе одну цельную, интересную статью для Яндекс.Дзен. Придумай яркий заголовок (на первой строке), затем напиши саму статью. Игнорируй рекламу и личные мнения. [/INST]
-
-НОВОСТИ:
----
-{text_digest}
----
-СТАТЬЯ:
-"""
-    
-    # ⬇️⬇️⬇️ ФИНАЛЬНОЕ УЛУЧШЕНИЕ: Просим AI сгенерировать до 1024 токенов ⬇️⬇️⬇️
-    data = {
-        "prompt": prompt,
-        "max_tokens": 1024 
-    }
-
+    data = {"prompt": prompt, "max_tokens": max_tokens}
     try:
         response = requests.post(API_URL, headers=headers, json=data, timeout=180)
         response.raise_for_status()
-
         result = response.json()
-        
         if result.get("success") and result.get("result"):
-            generated_article = result["result"]["response"].strip()
-            print("Ответ от Cloudflare AI успешно получен.")
-            return generated_article
+            return result["result"]["response"].strip()
         else:
             print(f"Ответ от Cloudflare AI не содержит успешного результата: {result}")
             return None
-
     except requests.exceptions.RequestException as e:
         print(f"Ошибка HTTP-запроса к Cloudflare API: {e}")
         if e.response is not None:
             print(f"Ответ сервера ({e.response.status_code}): {e.response.text}")
         return None
 
-def create_rss_feed(generated_content):
-    if not generated_content:
-        print("Контент не был сгенерирован, RSS-файл не будет создан.")
+# ⬇️⬇️⬇️ ЭТАП 1: Новая функция для группировки новостей по темам ⬇️⬇️⬇️
+def cluster_news_into_themes(all_news_text):
+    """Группирует все новости по 2-4 основным темам с помощью ИИ."""
+    print("Этап 1: Отправка запроса на группировку новостей по темам...")
+    prompt = f"""[INST]Проанализируй все новости ниже. Выдели 2-4 самые главные и интересные темы. Для каждой темы верни ее название и ПОЛНЫЙ, НЕИЗМЕНЕННЫЙ текст всех новостей, которые к ней относятся. Не суммируй и не изменяй текст новостей.
+
+Формат твоего ответа ДОЛЖЕН БЫТЬ СТРОГО ТАКИМ:
+### THEME: Название темы 1
+---
+Полный текст новости 1...
+---
+Полный текст новости 2...
+### THEME: Название темы 2
+---
+Полный текст новости 3...
+---
+Полный текст новости 4...
+[/INST]
+
+НОВОСТИ:
+---
+{all_news_text}
+---
+ТЕМЫ:
+"""
+    clustered_text = _call_cloudflare_ai(prompt, max_tokens=2048) # Даем больше токенов на группировку
+    if not clustered_text:
+        return {}
+
+    # Парсим ответ от ИИ
+    themes = {}
+    # Используем re.split для надежного разделения тем
+    theme_blocks = re.split(r'### THEME:', clustered_text)
+    for block in theme_blocks:
+        if not block.strip():
+            continue
+        parts = block.split('\n---\n', 1)
+        if len(parts) == 2:
+            title = parts[0].strip()
+            news = parts[1].strip()
+            if title and news:
+                themes[title] = news
+    
+    print(f"Найдено {len(themes)} тем: {list(themes.keys())}")
+    return themes
+
+# ⬇️⬇️⬇️ ЭТАП 2: Новая функция для написания статьи по конкретной теме ⬇️⬇️⬇️
+def write_article_for_theme(theme_title, news_for_theme):
+    """Пишет статью на основе новостей для одной конкретной темы."""
+    print(f"Этап 2: Написание статьи на тему '{theme_title}'...")
+    prompt = f"""[INST]Ты — профессиональный спортивный журналист. Напиши одну цельную, интересную статью для Яндекс.Дзен на тему "{theme_title}". Используй ТОЛЬКО факты из новостей, представленных ниже.
+
+Требования:
+1.  **Заголовок:** Придумай яркий, интригующий и кликабельный заголовок. Он должен быть на первой строке.
+2.  **Структура:** Статья должна состоять из введения, основной части (2-4 абзаца) и заключения.
+3.  **Стиль:** Пиши живым языком, сделай глубокий рерайт. Не копируй исходный текст.
+[/INST]
+
+НОВОСТИ ДЛЯ АНАЛИЗА:
+---
+{news_for_theme}
+---
+ГОТОВАЯ СТАТЬЯ:
+"""
+    return _call_cloudflare_ai(prompt, max_tokens=1024)
+
+# ⬇️⬇️⬇️ Новая функция для обновления, а не перезаписи RSS ⬇️⬇️⬇️
+def update_rss_file(generated_articles):
+    """Читает существующий RSS, добавляет новые статьи и обрезает старые."""
+    if not generated_articles:
+        print("Нет сгенерированных статей для добавления в RSS.")
         return
-    parts = generated_content.strip().split('\n', 1)
-    title = parts[0].strip()
-    description_text = parts[1].strip() if len(parts) > 1 else "Нет содержания."
-    formatted_description = description_text.replace('\n', '<br/>')
-    description_html = f"<![CDATA[{formatted_description}]]>"
-    rss = Element("rss", version="2.0")
-    channel = SubElement(rss, "channel")
-    SubElement(channel, "title").text = "Футбольные Новости от AI"
-    SubElement(channel, "link").text = f"https://github.com/{os.environ.get('GITHUB_REPOSITORY', '')}"
-    SubElement(channel, "description").text = "Самые свежие футбольные новости, сгенерированные нейросетью"
-    item = SubElement(channel, "item")
-    SubElement(item, "title").text = title
-    SubElement(item, "description").text = description_html
-    SubElement(item, "pubDate").text = datetime.datetime.now(datetime.timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
-    SubElement(item, "guid").text = str(int(datetime.datetime.now(datetime.timezone.utc).timestamp()))
-    xml_string = tostring(rss, 'utf-8')
+
+    try:
+        # Пытаемся прочитать существующий файл
+        tree = ET.parse(RSS_FILE_PATH)
+        root = tree.getroot()
+        channel = root.find('channel')
+    except (FileNotFoundError, ET.ParseError):
+        # Если файла нет или он поврежден, создаем новую структуру
+        print("RSS-файл не найден или поврежден. Создание нового файла.")
+        root = ET.Element("rss", version="2.0")
+        channel = ET.SubElement(root, "channel")
+        ET.SubElement(channel, "title").text = "Футбольные Новости от AI"
+        ET.SubElement(channel, "link").text = f"https://github.com/{os.environ.get('GITHUB_REPOSITORY', '')}"
+        ET.SubElement(channel, "description").text = "Самые свежие футбольные новости, сгенерированные нейросетью"
+
+    # Добавляем новые статьи в начало списка (после заголовков канала)
+    for article_text in reversed(generated_articles): # reversed чтобы сохранить хронологию
+        parts = article_text.strip().split('\n', 1)
+        if len(parts) < 2: continue
+
+        title = parts[0].strip()
+        description_text = parts[1].strip()
+
+        item = ET.Element("item")
+        ET.SubElement(item, "title").text = title
+        description_html = f"<![CDATA[{description_text.replace('\n', '<br/>')}]]>"
+        ET.SubElement(item, "description").text = description_html
+        ET.SubElement(item, "pubDate").text = datetime.datetime.now(datetime.timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
+        ET.SubElement(item, "guid").text = str(int(datetime.datetime.now(datetime.timezone.utc).timestamp()) + hash(title))
+        
+        # Вставляем новый item после 3х основных тегов канала (title, link, description)
+        channel.insert(3, item)
+
+    # Обрезаем список, если он стал слишком длинным
+    items = channel.findall('item')
+    if len(items) > MAX_RSS_ITEMS:
+        print(f"В RSS стало {len(items)} статей. Удаляем старые...")
+        for old_item in items[MAX_RSS_ITEMS:]:
+            channel.remove(old_item)
+
+    # Сохраняем красиво отформатированный XML
+    xml_string = ET.tostring(root, 'utf-8')
     pretty_xml = minidom.parseString(xml_string).toprettyxml(indent="  ")
     with open(RSS_FILE_PATH, "w", encoding="utf-8") as f:
         f.write(pretty_xml)
-    print(f"✅ RSS-лента успешно сохранена в файл: {RSS_FILE_PATH}")
-
+    print(f"✅ RSS-лента успешно обновлена. Теперь в ней {len(channel.findall('item'))} статей.")
 
 async def main():
-    posts = await get_channel_posts()
-    if not posts:
-        print("Новых постов для обработки нет. Завершение работы.")
+    combined_text = await get_channel_posts()
+    if not combined_text or len(combined_text) < 100:
+        print("Новых постов для обработки недостаточно. Завершение работы.")
         return
     
-    combined_text = "\n\n---\n\n".join([p["text"] for p in posts])
+    # Этап 1: Группировка
+    themes_with_news = cluster_news_into_themes(combined_text)
     
-    max_length = 25000 
-    if len(combined_text) > max_length:
-        print(f"Текст слишком длинный ({len(combined_text)} симв.), обрезаем до {max_length} символов.")
-        combined_text = combined_text[:max_length]
+    if not themes_with_news:
+        print("Не удалось сгруппировать новости по темам. Завершение работы.")
+        return
+        
+    generated_articles = []
+    # Этап 2: Написание статей для каждой темы
+    for theme_title, news_text in themes_with_news.items():
+        # Ограничиваем объем новостей для одной статьи
+        if len(news_text) > 25000:
+            news_text = news_text[:25000]
+            
+        article = write_article_for_theme(theme_title, news_text)
+        if article and len(article) > 50:
+            generated_articles.append(article)
     
-    generated_article = ask_cf_ai_to_write_article(combined_text)
-    
-    print("\n--- НАЧАЛО ОТВЕТА ОТ AI ---\n")
-    print(generated_article)
-    print("\n--- КОНЕЦ ОТВЕТА ОТ AI ---\n")
-    
-    if generated_article and len(generated_article) > 20:
-        create_rss_feed(generated_article)
+    # Финальный этап: Обновление RSS-файла
+    update_rss_file(generated_articles)
 
 if __name__ == "__main__":
     asyncio.run(main())
