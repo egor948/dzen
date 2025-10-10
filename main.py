@@ -6,7 +6,7 @@ from datetime import timedelta
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from xml.etree.ElementTree import Element, SubElement, tostring
-import xml.dom.minidom as minidom
+import xml.dom.min.idom as minidom
 import asyncio
 import time
 
@@ -31,8 +31,8 @@ HF_API_TOKEN = os.environ.get("HF_API_TOKEN")
 if not HF_API_TOKEN:
     raise ValueError("HF_API_TOKEN не задан в секретах GitHub!")
 
-# Выбираем мощную модель для генерации текста
-MODEL_ID = "mistralai/Mixtral-8x7B-Instruct-v0.1"
+# ⬇️⬇️⬇️ ИЗМЕНЕНИЕ ЗДЕСЬ: Выбираем стабильную и доступную модель ⬇️⬇️⬇️
+MODEL_ID = "mistralai/Mistral-7B-Instruct-v0.2"
 API_URL = f"https://api-inference.huggingface.co/models/{MODEL_ID}"
 
 
@@ -65,7 +65,7 @@ def ask_hf_to_write_article(text_digest):
     headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
     
     prompt = f"""
-Ты — профессиональный спортивный журналист. Проанализируй новости ниже и напиши на их основе одну цельную, интересную статью для Яндекс.Дзен. Придумай яркий заголовок (на первой строке), затем напиши саму статью. Игнорируй рекламу и личные мнения.
+[INST] Ты — профессиональный спортивный журналист. Проанализируй новости ниже и напиши на их основе одну цельную, интересную статью для Яндекс.Дзен. Придумай яркий заголовок (на первой строке), затем напиши саму статью. Игнорируй рекламу и личные мнения. [/INST]
 
 НОВОСТИ:
 ---
@@ -80,6 +80,7 @@ def ask_hf_to_write_article(text_digest):
             "max_new_tokens": 512,
             "temperature": 0.7,
             "repetition_penalty": 1.1,
+            "return_full_text": False # Просим вернуть только сгенерированную часть
         }
     }
 
@@ -89,8 +90,7 @@ def ask_hf_to_write_article(text_digest):
 
             if response.status_code == 200:
                 result = response.json()
-                full_text = result[0]['generated_text']
-                generated_article = full_text.replace(prompt, "").strip()
+                generated_article = result[0]['generated_text'].strip()
                 print("Ответ от Hugging Face успешно получен.")
                 return generated_article
             elif response.status_code == 503:
@@ -109,7 +109,6 @@ def ask_hf_to_write_article(text_digest):
     print("Не удалось получить ответ от модели после нескольких попыток.")
     return None
 
-
 def create_rss_feed(generated_content):
     if not generated_content:
         print("Контент не был сгенерирован, RSS-файл не будет создан.")
@@ -124,7 +123,7 @@ def create_rss_feed(generated_content):
     SubElement(channel, "title").text = "Футбольные Новости от AI"
     SubElement(channel, "link").text = f"https://github.com/{os.environ.get('GITHUB_REPOSITORY', '')}"
     SubElement(channel, "description").text = "Самые свежие футбольные новости, сгенерированные нейросетью"
-    item = SubElement(item, "item")
+    item = SubElement(channel, "item")
     SubElement(item, "title").text = title
     SubElement(item, "description").text = description_html
     SubElement(item, "pubDate").text = datetime.datetime.now(datetime.timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
