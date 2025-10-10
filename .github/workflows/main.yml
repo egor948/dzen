@@ -1,9 +1,14 @@
 # .github/workflows/main.yml
 name: Auto RSS Update
+
 on:
+  # Позволяет запускать вручную из вкладки "Actions"
   workflow_dispatch:
+  # Запускает по расписанию
   schedule:
-    - cron: '0 */6 * * *'
+    # Запуск в 09:00, 13:00, 17:00 и 21:00 по UTC (соответствует 12:00, 16:00, 20:00, 00:00 UTC+3)
+    - cron: '0 9,13,17,21 * * *'
+
 jobs:
   update-rss:
     runs-on: ubuntu-latest
