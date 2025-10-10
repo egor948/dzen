@@ -6,7 +6,7 @@ from datetime import timedelta
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from xml.etree.ElementTree import Element, SubElement, tostring
-import xml.dom.min.idom as minidom
+import xml.dom.minidom as minidom
 import asyncio
 import time
 
@@ -31,7 +31,7 @@ HF_API_TOKEN = os.environ.get("HF_API_TOKEN")
 if not HF_API_TOKEN:
     raise ValueError("HF_API_TOKEN не задан в секретах GitHub!")
 
-# ⬇️⬇️⬇️ ИЗМЕНЕНИЕ ЗДЕСЬ: Выбираем стабильную и доступную модель ⬇️⬇️⬇️
+# Выбираем стабильную и доступную модель
 MODEL_ID = "mistralai/Mistral-7B-Instruct-v0.2"
 API_URL = f"https://api-inference.huggingface.co/models/{MODEL_ID}"
 
@@ -80,7 +80,7 @@ def ask_hf_to_write_article(text_digest):
             "max_new_tokens": 512,
             "temperature": 0.7,
             "repetition_penalty": 1.1,
-            "return_full_text": False # Просим вернуть только сгенерированную часть
+            "return_full_text": False
         }
     }
 
