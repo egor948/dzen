@@ -1,3 +1,2 @@
-# requirements.txt
 telethon
-google-generativeai
+requests
