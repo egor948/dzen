@@ -101,8 +101,11 @@ def create_rss_feed(generated_content):
     title = parts[0].strip()
     description_text = parts[1].strip() if len(parts) > 1 else "Нет содержания."
 
-    # Оборачиваем описание в CDATA для корректного отображения HTML в RSS
-    description_html = f"<![CDATA[{description_text.replace('\n', '<br/>')}]]>"
+    # === ИСПРАВЛЕНИЕ ЗДЕСЬ ===
+    # Сначала заменяем переносы строк на <br/>
+    formatted_description = description_text.replace('\n', '<br/>')
+    # Затем вставляем отформатированный текст в CDATA
+    description_html = f"<![CDATA[{formatted_description}]]>"
 
     rss = Element("rss", version="2.0")
     channel = SubElement(rss, "channel")
