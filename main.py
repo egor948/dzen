@@ -43,7 +43,7 @@ RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
 async def get_channel_posts():
     all_posts = []
     now = datetime.datetime.now(datetime.timezone.utc)
-    # ⬇️⬇️⬇️ ИЗМЕНЕНИЕ 1: Устанавливаем период сбора новостей - 4 часа ⬇️⬇️⬇️
+    # Устанавливаем период сбора новостей - 4 часа
     cutoff = now - timedelta(hours=4)
     async with client:
         for channel_name in CHANNELS:
@@ -111,8 +111,8 @@ def create_rss_feed(generated_content):
     SubElement(channel, "link").text = f"https://github.com/{os.environ.get('GITHUB_REPOSITORY', '')}"
     SubElement(channel, "description").text = "Самые свежие футбольные новости, сгенерированные нейросетью"
     
-    # ⬇️⬇️⬇️ ИЗМЕНЕНИЕ 2: Исправляем ошибку UnboundLocalError ⬇️⬇️⬇️
-    item = SubElement(channel, "item") # Создаем <item> внутри <channel>
+    # ⬇️⬇️⬇️ ВОТ ИСПРАВЛЕНИЕ: Создаем <item> внутри <channel> ⬇️⬇️⬇️
+    item = SubElement(channel, "item")
 
     SubElement(item, "title").text = title
     SubElement(item, "description").text = description_html
