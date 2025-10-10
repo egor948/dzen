@@ -41,7 +41,6 @@ RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
 # ===============================================
 
 async def get_channel_posts():
-    # ... (эта функция остается без изменений)
     all_posts = []
     now = datetime.datetime.now(datetime.timezone.utc)
     cutoff = now - timedelta(hours=24)
@@ -78,93 +77,29 @@ def ask_hf_to_write_article(text_digest):
     data = {
         "inputs": prompt,
         "parameters": {
-            "max_new_tokens": 512,  # Ограничиваем длину сгенерированной статьи
+            "max_new_tokens": 512,
             "temperature": 0.7,
             "repetition_penalty": 1.1,
         }
     }
 
-    # Бесплатный API Hugging Face иногда "загружает" модель, если она неактивна.
-    # Это может занять время, поэтому делаем несколько попыток.
     for attempt in range(3):
         try:
             response = requests.post(API_URL, headers=headers, json=data, timeout=180)
 
             if response.status_code == 200:
                 result = response.json()
-                # Ответ от HF содержит и исходный промпт, и сгенерированный текст.
-                # Нам нужно отрезать исходный промпт.
                 full_text = result[0]['generated_text']
                 generated_article = full_text.replace(prompt, "").strip()
-
                 print("Ответ от Hugging Face успешно получен.")
                 return generated_article
-            # Если модель загружается, сервер вернет ошибку 503
             elif response.status_code == 503:
                 wait_time = int(response.json().get("estimated_time", 20))
                 print(f"Модель загружается. Повторная попытка через {wait_time} секунд...")
                 time.sleep(wait_time)
-                continue # Переходим к следующей попытке
+                continue
             else:
                 print(f"Ошибка от Hugging Face API ({response.status_code}): {response.text}")
                 return None
 
-        except requests.exceptions.RequestException as e:
-            print(f"Ошибка HTTP-запроса к Hugging Face API: {e}")
-            return None
-    
-    print("Не удалось получить ответ от модели после нескольких попыток.")
-    return None
-
-# ... (функции create_rss_feed и main остаются без изменений) ...
-
-def create_rss_feed(generated_content):
-    if not generated_content:
-        print("Контент не был сгенерирован, RSS-файл не будет создан.")
-        return
-    parts = generated_content.strip().split('\n', 1)
-    title = parts[0].strip()
-    description_text = parts[1].strip() if len(parts) > 1 else "Нет содержания."
-    formatted_description = description_text.replace('\n', '<br/>')
-    description_html = f"<![CDATA[{formatted_description}]]>"
-    rss = Element("rss", version="2.0")
-    channel = SubElement(rss, "channel")
-    SubElement(channel, "title").text = "Футбольные Новости от AI"
-    SubElement(channel, "link").text = f"https://github.com/{os.environ.get('GITHUB_REPOSITORY', '')}"
-    SubElement(channel, "description").text = "Самые свежие футбольные новости, сгенерированные нейросетью"
-    item = SubElement(channel, "item")
-    SubElement(item, "title").text = title
-    SubElement(item, "description").text = description_html
-    SubElement(item, "pubDate").text = datetime.datetime.now(datetime.timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
-    SubElement(item, "guid").text = str(int(datetime.datetime.now(datetime.timezone.utc).timestamp()))
-    xml_string = tostring(rss, 'utf-8')
-    pretty_xml = minidom.parseString(xml_string).toprettyxml(indent="  ")
-    with open(RSS_FILE_PATH, "w", encoding="utf-8") as f:
-        f.write(pretty_xml)
-    print(f"✅ RSS-лента успешно сохранена в файл: {RSS_FILE_PATH}")
-
-
-async def main():
-    posts = await get_channel_posts()
-    if not posts:
-        print("Новых постов для обработки нет. Завершение работы.")
-        return
-    combined_text = "\n\n---\n\n".join([p["text"] for p in posts])
-    max_length = 10000 # Уменьшаем объем для HF API, чтобы уложиться в лимиты
-    if len(combined_text) > max_length:
-        print(f"Текст слишком длинный, обрезаем до {max_length} символов.")
-        combined_text = combined_text[:max_length]
-    generated_article = ask_hf_to_write_article(combined_text)
-    if generated_article:
-        create_rss_feed(generated_article)
-
-if __name__ == "__main__":
-    asyncio.run(main())```
-
-#### Шаг 5: Проверьте `requirements.txt`
-
-Зависимости у нас не изменились. Убедитесь, что ваш `requirements.txt` содержит:
-
-```txt
-telethon
-requests
+        except reque
