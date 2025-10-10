@@ -25,16 +25,15 @@ CHANNELS = [
     "lexusarsenal", "sixELCE", "astonvillago"
 ]
 
-# ================== Google Gemini через прокси ==================
+# ================== Google Gemini через ВАШ личный прокси ==================
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY не задан!")
 
-# URL для прокси-сервера Gemini. 
-# ВАЖНО: Этот URL - пример. Вам нужно найти реальный прокси-сервис
-# и заменить его URL здесь. 
-# Он должен вести к модели gemini-pro и методу generateContent.
-GEMINI_PROXY_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
+# ⬇️⬇️⬇️ ВАШ URL-адрес от Vercel уже здесь ⬇️⬇️⬇️
+VERCEL_PROXY_DOMAIN = "geminiproxy-sandy-chi.vercel.app"
+
+GEMINI_PROXY_URL = f"https://{VERCEL_PROXY_DOMAIN}/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
 
 
 # GitHub - Путь к файлу
@@ -63,13 +62,22 @@ async def get_channel_posts():
 
 def ask_gemini_to_write_article(text_digest):
     """Отправляет дайджест новостей в Gemini через прямой HTTP-запрос (прокси)."""
-    print("Отправка запроса в Google Gemini через прокси...")
+    print(f"Отправка запроса в Google Gemini через ваш прокси: {VERCEL_PROXY_DOMAIN}...")
     
     headers = {"Content-Type": "application/json"}
     
     prompt = f"""
-Ты — профессиональный спортивный журналист... (Ваш промпт без изменений)
-...
+Ты — профессиональный спортивный журналист. Твоя задача — проанализировать сырой дайджест новостей из Telegram-каналов и написать на его основе одну цельную, интересную статью для Яндекс.Дзен.
+
+Требования к статье:
+1.  **Заголовок:** Придумай яркий, интригующий и кликабельный заголовок. Он должен быть на первой строке.
+2.  **Структура:** Статья должна состоять из введения, основной части (2-4 абзаца) и заключения.
+3.  **Содержание:** Объедини связанные новости в общие темы. Не перечисляй все подряд. Выбери самое важное и интересное.
+4.  **Стиль:** Пиши живым, динамичным языком. Избегай канцеляризмов и прямого копирования. Сделай глубокий рерайт.
+5.  **Фильтрация:** Полностью игнорируй любую рекламу, букмекерские конторы, личные мнения авторов каналов и повторяющуюся информацию.
+
+ВАЖНО: Твой ответ должен начинаться с заголовка, а затем, с новой строки, идти основной текст статьи.
+
 Вот дайджест новостей для анализа:
 ---
 {text_digest}
@@ -85,8 +93,8 @@ def ask_gemini_to_write_article(text_digest):
     }
 
     try:
-        response = requests.post(GEMINI_PROXY_URL, headers=headers, json=data, timeout=120)
-        response.raise_for_status()  # Вызовет ошибку, если код ответа не 2xx
+        response = requests.post(GEMINI_PROXY_URL, headers=headers, json=data, timeout=180)
+        response.raise_for_status()
 
         result = response.json()
         generated_text = result['candidates'][0]['content']['parts'][0]['text']
@@ -95,15 +103,14 @@ def ask_gemini_to_write_article(text_digest):
         return generated_text
     except requests.exceptions.RequestException as e:
         print(f"Ошибка HTTP-запроса к Gemini API: {e}")
-        # Печатаем тело ответа, если он есть, для диагностики
         if e.response is not None:
-            print(f"Ответ сервера: {e.response.text}")
+            print(f"Ответ сервера ({e.response.status_code}): {e.response.text}")
         return None
     except (KeyError, IndexError) as e:
         print(f"Не удалось разобрать ответ от Gemini. Структура ответа изменилась? Ошибка: {e}")
-        print(f"Полученный ответ: {result}")
+        if 'result' in locals():
+            print(f"Полученный ответ: {result}")
         return None
-
 
 def create_rss_feed(generated_content):
     if not generated_content:
@@ -119,7 +126,6 @@ def create_rss_feed(generated_content):
 
     rss = Element("rss", version="2.0")
     channel = SubElement(rss, "channel")
-    # ... (остальная часть функции без изменений)
     SubElement(channel, "title").text = "Футбольные Новости от AI"
     SubElement(channel, "link").text = f"https://github.com/{os.environ.get('GITHUB_REPOSITORY', '')}"
     SubElement(channel, "description").text = "Самые свежие футбольные новости, сгенерированные нейросетью"
