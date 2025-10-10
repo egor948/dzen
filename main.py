@@ -32,7 +32,6 @@ CF_API_TOKEN = os.environ.get("CF_API_TOKEN", "").strip()
 if not CF_ACCOUNT_ID or not CF_API_TOKEN:
     raise ValueError("CF_ACCOUNT_ID или CF_API_TOKEN не заданы в секретах GitHub!")
 
-# ⬇️⬇️⬇️ ИЗМЕНЕНИЕ 1: Выбираем модель Mistral-7B с большей "памятью" (контекстным окном) ⬇️⬇️⬇️
 MODEL_ID = "@cf/mistral/mistral-7b-instruct-v0.1"
 API_URL = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{MODEL_ID}"
 
@@ -44,7 +43,8 @@ RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
 async def get_channel_posts():
     all_posts = []
     now = datetime.datetime.now(datetime.timezone.utc)
-    cutoff = now - timedelta(hours=24)
+    # ⬇️⬇️⬇️ ИЗМЕНЕНИЕ 1: Устанавливаем период сбора новостей - 4 часа ⬇️⬇️⬇️
+    cutoff = now - timedelta(hours=4)
     async with client:
         for channel_name in CHANNELS:
             print(f"Парсинг канала: {channel_name}...")
@@ -110,7 +110,10 @@ def create_rss_feed(generated_content):
     SubElement(channel, "title").text = "Футбольные Новости от AI"
     SubElement(channel, "link").text = f"https://github.com/{os.environ.get('GITHUB_REPOSITORY', '')}"
     SubElement(channel, "description").text = "Самые свежие футбольные новости, сгенерированные нейросетью"
-    item = SubElement(item, "item")
+    
+    # ⬇️⬇️⬇️ ИЗМЕНЕНИЕ 2: Исправляем ошибку UnboundLocalError ⬇️⬇️⬇️
+    item = SubElement(channel, "item") # Создаем <item> внутри <channel>
+
     SubElement(item, "title").text = title
     SubElement(item, "description").text = description_html
     SubElement(item, "pubDate").text = datetime.datetime.now(datetime.timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
@@ -130,8 +133,7 @@ async def main():
     
     combined_text = "\n\n---\n\n".join([p["text"] for p in posts])
     
-    # ⬇️⬇️⬇️ ИЗМЕНЕНИЕ 2: Устанавливаем БЕЗОПАСНЫЙ лимит для новой модели ⬇️⬇️⬇️
-    max_length = 25000 # Новая модель позволяет обрабатывать больше текста
+    max_length = 25000 
     if len(combined_text) > max_length:
         print(f"Текст слишком длинный ({len(combined_text)} симв.), обрезаем до {max_length} символов.")
         combined_text = combined_text[:max_length]
@@ -142,7 +144,7 @@ async def main():
     print(generated_article)
     print("\n--- КОНЕЦ ОТВЕТА ОТ AI ---\n")
     
-    if generated_article and len(generated_article) > 20: # Добавим проверку на минимальную длину
+    if generated_article and len(generated_article) > 20:
         create_rss_feed(generated_article)
 
 if __name__ == "__main__":
