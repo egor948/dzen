@@ -8,7 +8,6 @@ from telethon.sessions import StringSession
 from xml.etree.ElementTree import Element, SubElement, tostring
 import xml.dom.minidom as minidom
 import asyncio
-import time
 
 # ================= НАСТРОЙКИ =================
 # Telegram
@@ -26,14 +25,16 @@ CHANNELS = [
     "lexusarsenal", "sixELCE", "astonvillago"
 ]
 
-# ================== Hugging Face API ==================
-HF_API_TOKEN = os.environ.get("HF_API_TOKEN")
-if not HF_API_TOKEN:
-    raise ValueError("HF_API_TOKEN не задан в секретах GitHub!")
+# ================== Cloudflare AI ==================
+CF_ACCOUNT_ID = os.environ.get("CF_ACCOUNT_ID")
+CF_API_TOKEN = os.environ.get("CF_API_TOKEN")
 
-# ⬇️⬇️⬇️ ФИНАЛЬНАЯ ПОПЫТКА: Используем модель Zephyr, доработанную версию Mistral ⬇️⬇️⬇️
-MODEL_ID = "HuggingFaceH4/zephyr-7b-beta"
-API_URL = f"https://api-inference.huggingface.co/models/{MODEL_ID}"
+if not CF_ACCOUNT_ID or not CF_API_TOKEN:
+    raise ValueError("CF_ACCOUNT_ID или CF_API_TOKEN не заданы в секретах GitHub!")
+
+# Cloudflare предоставляет доступ к той же самой модели Mistral 7B
+MODEL_ID = "@cf/meta/llama-2-7b-chat-fp16" # Используем Llama-2-7B, она стабильна на CF
+API_URL = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{MODEL_ID}"
 
 
 # GitHub - Путь к файлу
@@ -41,6 +42,7 @@ RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
 # ===============================================
 
 async def get_channel_posts():
+    # ... (эта функция остается без изменений)
     all_posts = []
     now = datetime.datetime.now(datetime.timezone.utc)
     cutoff = now - timedelta(hours=24)
@@ -58,60 +60,45 @@ async def get_channel_posts():
     return all_posts
 
 
-def ask_hf_to_write_article(text_digest):
-    """Отправляет дайджест новостей в Hugging Face и просит сгенерировать статью."""
-    print(f"Отправка запроса в Hugging Face модель: {MODEL_ID}...")
+def ask_cf_ai_to_write_article(text_digest):
+    """Отправляет дайджест новостей в Cloudflare AI и просит сгенерировать статью."""
+    print(f"Отправка запроса в Cloudflare AI модель: {MODEL_ID}...")
     
-    headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
+    headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
     
-    # Специальный формат промпта для моделей Zephyr/ChatML
-    prompt = f"""<|system|>
-Ты — профессиональный спортивный журналист. Проанализируй новости ниже и напиши на их основе одну цельную, интересную статью для Яндекс.Дзен. Придумай яркий заголовок (на первой строке), затем напиши саму статью. Игнорируй рекламу и личные мнения.</s>
-<|user|>
+    prompt = f"""Ты — профессиональный спортивный журналист. Проанализируй новости ниже и напиши на их основе одну цельную, интересную статью для Яндекс.Дзен. Придумай яркий заголовок (на первой строке), затем напиши саму статью. Игнорируй рекламу и личные мнения.
+
 НОВОСТИ:
 ---
 {text_digest}
 ---
-СТАТЬЯ:</s>
-<|assistant|>
+СТАТЬЯ:
 """
     
-    data = {
-        "inputs": prompt,
-        "parameters": {
-            "max_new_tokens": 512,
-            "temperature": 0.7,
-            "repetition_penalty": 1.1,
-            "return_full_text": False
-        }
-    }
+    data = {"prompt": prompt}
 
-    for attempt in range(3):
-        try:
-            response = requests.post(API_URL, headers=headers, json=data, timeout=180)
+    try:
+        response = requests.post(API_URL, headers=headers, json=data, timeout=180)
+        response.raise_for_status() # Вызовет ошибку если статус не 200
 
-            if response.status_code == 200:
-                result = response.json()
-                generated_article = result[0]['generated_text'].strip()
-                print("Ответ от Hugging Face успешно получен.")
-                return generated_article
-            elif response.status_code == 503:
-                wait_time = int(response.json().get("estimated_time", 20))
-                print(f"Модель загружается. Повторная попытка через {wait_time} секунд...")
-                time.sleep(wait_time)
-                continue
-            else:
-                print(f"Ошибка от Hugging Face API ({response.status_code}): {response.text}")
-                return None
-
-        except requests.exceptions.RequestException as e:
-            print(f"Ошибка HTTP-запроса к Hugging Face API: {e}")
+        result = response.json()
+        
+        if result.get("success") and result.get("result"):
+            generated_article = result["result"]["response"].strip()
+            print("Ответ от Cloudflare AI успешно получен.")
+            return generated_article
+        else:
+            print(f"Ответ от Cloudflare AI не содержит успешного результата: {result}")
             return None
-    
-    print("Не удалось получить ответ от модели после нескольких попыток.")
-    return None
+
+    except requests.exceptions.RequestException as e:
+        print(f"Ошибка HTTP-запроса к Cloudflare API: {e}")
+        if e.response is not None:
+            print(f"Ответ сервера ({e.response.status_code}): {e.response.text}")
+        return None
 
 def create_rss_feed(generated_content):
+    # ... (эта функция остается без изменений)
     if not generated_content:
         print("Контент не был сгенерирован, RSS-файл не будет создан.")
         return
@@ -128,7 +115,7 @@ def create_rss_feed(generated_content):
     item = SubElement(channel, "item")
     SubElement(item, "title").text = title
     SubElement(item, "description").text = description_html
-    SubElement(item, "pubDate").text = datetime.datetime.now(datetime.timezone.utc).strftime("%a, %d %b Y %H:%M:%S GMT")
+    SubElement(item, "pubDate").text = datetime.datetime.now(datetime.timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
     SubElement(item, "guid").text = str(int(datetime.datetime.now(datetime.timezone.utc).timestamp()))
     xml_string = tostring(rss, 'utf-8')
     pretty_xml = minidom.parseString(xml_string).toprettyxml(indent="  ")
@@ -138,6 +125,7 @@ def create_rss_feed(generated_content):
 
 
 async def main():
+    # ... (эта функция остается без изменений)
     posts = await get_channel_posts()
     if not posts:
         print("Новых постов для обработки нет. Завершение работы.")
@@ -147,7 +135,7 @@ async def main():
     if len(combined_text) > max_length:
         print(f"Текст слишком длинный, обрезаем до {max_length} символов.")
         combined_text = combined_text[:max_length]
-    generated_article = ask_hf_to_write_article(combined_text)
+    generated_article = ask_cf_ai_to_write_article(combined_text)
     if generated_article:
         create_rss_feed(generated_article)
 
