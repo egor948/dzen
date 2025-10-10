@@ -43,7 +43,6 @@ RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
 async def get_channel_posts():
     all_posts = []
     now = datetime.datetime.now(datetime.timezone.utc)
-    # Устанавливаем период сбора новостей - 4 часа
     cutoff = now - timedelta(hours=4)
     async with client:
         for channel_name in CHANNELS:
@@ -74,7 +73,11 @@ def ask_cf_ai_to_write_article(text_digest):
 СТАТЬЯ:
 """
     
-    data = {"prompt": prompt}
+    # ⬇️⬇️⬇️ ФИНАЛЬНОЕ УЛУЧШЕНИЕ: Просим AI сгенерировать до 1024 токенов ⬇️⬇️⬇️
+    data = {
+        "prompt": prompt,
+        "max_tokens": 1024 
+    }
 
     try:
         response = requests.post(API_URL, headers=headers, json=data, timeout=180)
@@ -110,10 +113,7 @@ def create_rss_feed(generated_content):
     SubElement(channel, "title").text = "Футбольные Новости от AI"
     SubElement(channel, "link").text = f"https://github.com/{os.environ.get('GITHUB_REPOSITORY', '')}"
     SubElement(channel, "description").text = "Самые свежие футбольные новости, сгенерированные нейросетью"
-    
-    # ⬇️⬇️⬇️ ВОТ ИСПРАВЛЕНИЕ: Создаем <item> внутри <channel> ⬇️⬇️⬇️
     item = SubElement(channel, "item")
-
     SubElement(item, "title").text = title
     SubElement(item, "description").text = description_html
     SubElement(item, "pubDate").text = datetime.datetime.now(datetime.timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
