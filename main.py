@@ -31,8 +31,8 @@ HF_API_TOKEN = os.environ.get("HF_API_TOKEN")
 if not HF_API_TOKEN:
     raise ValueError("HF_API_TOKEN не задан в секретах GitHub!")
 
-# Выбираем стабильную и доступную модель
-MODEL_ID = "mistralai/Mistral-7B-Instruct-v0.2"
+# ⬇️⬇️⬇️ ФИНАЛЬНАЯ ПОПЫТКА: Используем модель Zephyr, доработанную версию Mistral ⬇️⬇️⬇️
+MODEL_ID = "HuggingFaceH4/zephyr-7b-beta"
 API_URL = f"https://api-inference.huggingface.co/models/{MODEL_ID}"
 
 
@@ -64,14 +64,16 @@ def ask_hf_to_write_article(text_digest):
     
     headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
     
-    prompt = f"""
-[INST] Ты — профессиональный спортивный журналист. Проанализируй новости ниже и напиши на их основе одну цельную, интересную статью для Яндекс.Дзен. Придумай яркий заголовок (на первой строке), затем напиши саму статью. Игнорируй рекламу и личные мнения. [/INST]
-
+    # Специальный формат промпта для моделей Zephyr/ChatML
+    prompt = f"""<|system|>
+Ты — профессиональный спортивный журналист. Проанализируй новости ниже и напиши на их основе одну цельную, интересную статью для Яндекс.Дзен. Придумай яркий заголовок (на первой строке), затем напиши саму статью. Игнорируй рекламу и личные мнения.</s>
+<|user|>
 НОВОСТИ:
 ---
 {text_digest}
 ---
-СТАТЬЯ:
+СТАТЬЯ:</s>
+<|assistant|>
 """
     
     data = {
@@ -126,7 +128,7 @@ def create_rss_feed(generated_content):
     item = SubElement(channel, "item")
     SubElement(item, "title").text = title
     SubElement(item, "description").text = description_html
-    SubElement(item, "pubDate").text = datetime.datetime.now(datetime.timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
+    SubElement(item, "pubDate").text = datetime.datetime.now(datetime.timezone.utc).strftime("%a, %d %b Y %H:%M:%S GMT")
     SubElement(item, "guid").text = str(int(datetime.datetime.now(datetime.timezone.utc).timestamp()))
     xml_string = tostring(rss, 'utf-8')
     pretty_xml = minidom.parseString(xml_string).toprettyxml(indent="  ")
