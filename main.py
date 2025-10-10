@@ -55,8 +55,6 @@ async def get_channel_posts():
             except Exception as e:
                 print(f"Не удалось получить посты из канала '{channel_name}': {e}")
     all_posts.sort(key=lambda p: p["date"])
-    print(f"Найдено {len(all_posts)} новых постов.")
-    # Используем dict.fromkeys для удаления дубликатов постов, сохраняя порядок
     unique_posts = list(dict.fromkeys(p['text'] for p in all_posts))
     return "\n\n---\n\n".join(unique_posts)
 
@@ -79,7 +77,6 @@ def _call_cloudflare_ai(prompt, max_tokens=1024):
             print(f"Ответ сервера ({e.response.status_code}): {e.response.text}")
         return None
 
-# ⬇️⬇️⬇️ ЭТАП 1: Новая функция для группировки новостей по темам ⬇️⬇️⬇️
 def cluster_news_into_themes(all_news_text):
     """Группирует все новости по 2-4 основным темам с помощью ИИ."""
     print("Этап 1: Отправка запроса на группировку новостей по темам...")
@@ -104,13 +101,10 @@ def cluster_news_into_themes(all_news_text):
 ---
 ТЕМЫ:
 """
-    clustered_text = _call_cloudflare_ai(prompt, max_tokens=2048) # Даем больше токенов на группировку
+    clustered_text = _call_cloudflare_ai(prompt, max_tokens=2048)
     if not clustered_text:
         return {}
-
-    # Парсим ответ от ИИ
     themes = {}
-    # Используем re.split для надежного разделения тем
     theme_blocks = re.split(r'### THEME:', clustered_text)
     for block in theme_blocks:
         if not block.strip():
@@ -125,7 +119,6 @@ def cluster_news_into_themes(all_news_text):
     print(f"Найдено {len(themes)} тем: {list(themes.keys())}")
     return themes
 
-# ⬇️⬇️⬇️ ЭТАП 2: Новая функция для написания статьи по конкретной теме ⬇️⬇️⬇️
 def write_article_for_theme(theme_title, news_for_theme):
     """Пишет статью на основе новостей для одной конкретной темы."""
     print(f"Этап 2: Написание статьи на тему '{theme_title}'...")
@@ -145,7 +138,6 @@ def write_article_for_theme(theme_title, news_for_theme):
 """
     return _call_cloudflare_ai(prompt, max_tokens=1024)
 
-# ⬇️⬇️⬇️ Новая функция для обновления, а не перезаписи RSS ⬇️⬇️⬇️
 def update_rss_file(generated_articles):
     """Читает существующий RSS, добавляет новые статьи и обрезает старые."""
     if not generated_articles:
@@ -153,12 +145,10 @@ def update_rss_file(generated_articles):
         return
 
     try:
-        # Пытаемся прочитать существующий файл
         tree = ET.parse(RSS_FILE_PATH)
         root = tree.getroot()
         channel = root.find('channel')
     except (FileNotFoundError, ET.ParseError):
-        # Если файла нет или он поврежден, создаем новую структуру
         print("RSS-файл не найден или поврежден. Создание нового файла.")
         root = ET.Element("rss", version="2.0")
         channel = ET.SubElement(root, "channel")
@@ -166,8 +156,7 @@ def update_rss_file(generated_articles):
         ET.SubElement(channel, "link").text = f"https://github.com/{os.environ.get('GITHUB_REPOSITORY', '')}"
         ET.SubElement(channel, "description").text = "Самые свежие футбольные новости, сгенерированные нейросетью"
 
-    # Добавляем новые статьи в начало списка (после заголовков канала)
-    for article_text in reversed(generated_articles): # reversed чтобы сохранить хронологию
+    for article_text in reversed(generated_articles):
         parts = article_text.strip().split('\n', 1)
         if len(parts) < 2: continue
 
@@ -176,27 +165,34 @@ def update_rss_file(generated_articles):
 
         item = ET.Element("item")
         ET.SubElement(item, "title").text = title
-        description_html = f"<![CDATA[{description_text.replace('\n', '<br/>')}]]>"
-        ET.SubElement(item, "description").text = description_html
+        
+        # ⬇️⬇️⬇️ ВОТ ИСПРАВЛЕНИЕ: Безопасный способ добавления CDATA ⬇️⬇️⬇️
+        description_element = ET.SubElement(item, "description")
+        description_element.text = f"<![CDATA[{description_text.replace(chr(10), '<br/>')}]]>"
+        
         ET.SubElement(item, "pubDate").text = datetime.datetime.now(datetime.timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
         ET.SubElement(item, "guid").text = str(int(datetime.datetime.now(datetime.timezone.utc).timestamp()) + hash(title))
         
-        # Вставляем новый item после 3х основных тегов канала (title, link, description)
         channel.insert(3, item)
 
-    # Обрезаем список, если он стал слишком длинным
     items = channel.findall('item')
     if len(items) > MAX_RSS_ITEMS:
         print(f"В RSS стало {len(items)} статей. Удаляем старые...")
         for old_item in items[MAX_RSS_ITEMS:]:
             channel.remove(old_item)
 
-    # Сохраняем красиво отформатированный XML
-    xml_string = ET.tostring(root, 'utf-8')
-    pretty_xml = minidom.parseString(xml_string).toprettyxml(indent="  ")
+    xml_string = ET.tostring(root, 'utf-8', method='xml')
+    # Используем minidom для красивого форматирования, но сначала исправляем баг с CDATA
+    reparsed = minidom.parseString(xml_string)
+    pretty_xml = reparsed.toprettyxml(indent="  ")
+    
+    # Костыль для minidom, который кодирует CDATA. Мы его декодируем обратно.
+    pretty_xml = pretty_xml.replace('&lt;![CDATA[', '<![CDATA[').replace(']]&gt;', ']]>')
+
     with open(RSS_FILE_PATH, "w", encoding="utf-8") as f:
         f.write(pretty_xml)
     print(f"✅ RSS-лента успешно обновлена. Теперь в ней {len(channel.findall('item'))} статей.")
+
 
 async def main():
     combined_text = await get_channel_posts()
@@ -204,7 +200,6 @@ async def main():
         print("Новых постов для обработки недостаточно. Завершение работы.")
         return
     
-    # Этап 1: Группировка
     themes_with_news = cluster_news_into_themes(combined_text)
     
     if not themes_with_news:
@@ -212,17 +207,15 @@ async def main():
         return
         
     generated_articles = []
-    # Этап 2: Написание статей для каждой темы
     for theme_title, news_text in themes_with_news.items():
-        # Ограничиваем объем новостей для одной статьи
         if len(news_text) > 25000:
             news_text = news_text[:25000]
             
         article = write_article_for_theme(theme_title, news_text)
         if article and len(article) > 50:
+            print(f"--- Сгенерирована статья на тему: {theme_title} ---")
             generated_articles.append(article)
     
-    # Финальный этап: Обновление RSS-файла
     update_rss_file(generated_articles)
 
 if __name__ == "__main__":
