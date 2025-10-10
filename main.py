@@ -8,6 +8,7 @@ from telethon.sessions import StringSession
 from xml.etree.ElementTree import Element, SubElement, tostring
 import xml.dom.minidom as minidom
 import asyncio
+import time
 
 # ================= НАСТРОЙКИ =================
 # Telegram
@@ -25,15 +26,14 @@ CHANNELS = [
     "lexusarsenal", "sixELCE", "astonvillago"
 ]
 
-# ================== Google Gemini через ВАШ личный прокси ==================
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-if not GEMINI_API_KEY:
-    raise ValueError("GEMINI_API_KEY не задан!")
+# ================== Hugging Face API ==================
+HF_API_TOKEN = os.environ.get("HF_API_TOKEN")
+if not HF_API_TOKEN:
+    raise ValueError("HF_API_TOKEN не задан в секретах GitHub!")
 
-VERCEL_PROXY_DOMAIN = "geminiproxy-sandy-chi.vercel.app"
-
-# ⬇️⬇️⬇️ ФИНАЛЬНОЕ ИЗМЕНЕНИЕ: Используем полное, официальное имя модели 'gemini-1.0-pro' ⬇️⬇️⬇️
-GEMINI_PROXY_URL = f"https://{VERCEL_PROXY_DOMAIN}/v1/models/gemini-1.0-pro:generateContent?key={GEMINI_API_KEY}"
+# Выбираем мощную модель для генерации текста
+MODEL_ID = "mistralai/Mixtral-8x7B-Instruct-v0.1"
+API_URL = f"https://api-inference.huggingface.co/models/{MODEL_ID}"
 
 
 # GitHub - Путь к файлу
@@ -59,45 +59,66 @@ async def get_channel_posts():
     return all_posts
 
 
-def ask_gemini_to_write_article(text_digest):
-    # ... (эта функция остается без изменений)
-    print(f"Отправка запроса в Google Gemini через ваш прокси: {VERCEL_PROXY_DOMAIN}...")
-    headers = {"Content-Type": "application/json"}
+def ask_hf_to_write_article(text_digest):
+    """Отправляет дайджест новостей в Hugging Face и просит сгенерировать статью."""
+    print(f"Отправка запроса в Hugging Face модель: {MODEL_ID}...")
+    
+    headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
+    
     prompt = f"""
-Ты — профессиональный спортивный журналист. Твоя задача — проанализировать сырой дайджест новостей из Telegram-каналов и написать на его основе одну цельную, интересную статью для Яндекс.Дзен.
-Требования к статье:
-1.  **Заголовок:** Придумай яркий, интригующий и кликабельный заголовок. Он должен быть на первой строке.
-2.  **Структура:** Статья должна состоять из введения, основной части (2-4 абзаца) и заключения.
-3.  **Содержание:** Объедини связанные новости в общие темы. Не перечисляй все подряд. Выбери самое важное и интересное.
-4.  **Стиль:** Пиши живым, динамичным языком. Избегай канцеляризмов и прямого копирования. Сделай глубокий рерайт.
-5.  **Фильтрация:** Полностью игнорируй любую рекламу, букмекерские конторы, личные мнения авторов каналов и повторяющуюся информацию.
-ВАЖНО: Твой ответ должен начинаться с заголока, а затем, с новой строки, идти основной текст статьи.
-Вот дайджест новостей для анализа:
+Ты — профессиональный спортивный журналист. Проанализируй новости ниже и напиши на их основе одну цельную, интересную статью для Яндекс.Дзен. Придумай яркий заголовок (на первой строке), затем напиши саму статью. Игнорируй рекламу и личные мнения.
+
+НОВОСТИ:
 ---
 {text_digest}
 ---
+СТАТЬЯ:
 """
-    data = {"contents": [{"parts": [{"text": prompt}]}]}
-    try:
-        response = requests.post(GEMINI_PROXY_URL, headers=headers, json=data, timeout=180)
-        response.raise_for_status()
-        result = response.json()
-        generated_text = result['candidates'][0]['content']['parts'][0]['text']
-        print("Ответ от Gemini успешно получен.")
-        return generated_text
-    except requests.exceptions.RequestException as e:
-        print(f"Ошибка HTTP-запроса к Gemini API: {e}")
-        if e.response is not None:
-            print(f"Ответ сервера ({e.response.status_code}): {e.response.text}")
-        return None
-    except (KeyError, IndexError) as e:
-        print(f"Не удалось разобрать ответ от Gemini. Структура ответа изменилась? Ошибка: {e}")
-        if 'result' in locals():
-            print(f"Полученный ответ: {result}")
-        return None
+    
+    data = {
+        "inputs": prompt,
+        "parameters": {
+            "max_new_tokens": 512,  # Ограничиваем длину сгенерированной статьи
+            "temperature": 0.7,
+            "repetition_penalty": 1.1,
+        }
+    }
+
+    # Бесплатный API Hugging Face иногда "загружает" модель, если она неактивна.
+    # Это может занять время, поэтому делаем несколько попыток.
+    for attempt in range(3):
+        try:
+            response = requests.post(API_URL, headers=headers, json=data, timeout=180)
+
+            if response.status_code == 200:
+                result = response.json()
+                # Ответ от HF содержит и исходный промпт, и сгенерированный текст.
+                # Нам нужно отрезать исходный промпт.
+                full_text = result[0]['generated_text']
+                generated_article = full_text.replace(prompt, "").strip()
+
+                print("Ответ от Hugging Face успешно получен.")
+                return generated_article
+            # Если модель загружается, сервер вернет ошибку 503
+            elif response.status_code == 503:
+                wait_time = int(response.json().get("estimated_time", 20))
+                print(f"Модель загружается. Повторная попытка через {wait_time} секунд...")
+                time.sleep(wait_time)
+                continue # Переходим к следующей попытке
+            else:
+                print(f"Ошибка от Hugging Face API ({response.status_code}): {response.text}")
+                return None
+
+        except requests.exceptions.RequestException as e:
+            print(f"Ошибка HTTP-запроса к Hugging Face API: {e}")
+            return None
+    
+    print("Не удалось получить ответ от модели после нескольких попыток.")
+    return None
+
+# ... (функции create_rss_feed и main остаются без изменений) ...
 
 def create_rss_feed(generated_content):
-    # ... (эта функция остается без изменений)
     if not generated_content:
         print("Контент не был сгенерирован, RSS-файл не будет создан.")
         return
@@ -124,19 +145,26 @@ def create_rss_feed(generated_content):
 
 
 async def main():
-    # ... (эта функция остается без изменений)
     posts = await get_channel_posts()
     if not posts:
         print("Новых постов для обработки нет. Завершение работы.")
         return
     combined_text = "\n\n---\n\n".join([p["text"] for p in posts])
-    max_length = 30000
+    max_length = 10000 # Уменьшаем объем для HF API, чтобы уложиться в лимиты
     if len(combined_text) > max_length:
         print(f"Текст слишком длинный, обрезаем до {max_length} символов.")
         combined_text = combined_text[:max_length]
-    generated_article = ask_gemini_to_write_article(combined_text)
+    generated_article = ask_hf_to_write_article(combined_text)
     if generated_article:
         create_rss_feed(generated_article)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(main())```
+
+#### Шаг 5: Проверьте `requirements.txt`
+
+Зависимости у нас не изменились. Убедитесь, что ваш `requirements.txt` содержит:
+
+```txt
+telethon
+requests
