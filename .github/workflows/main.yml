@@ -12,7 +12,7 @@ jobs:
   update-rss:
     runs-on: ubuntu-latest
 
-    # КЛЮЧЕВОЙ МОМЕНТ: Даем права на запись в репозиторий
+    # Даем права на запись в репозиторий
     permissions:
       contents: write
 
@@ -31,18 +31,21 @@ jobs:
 
       - name: 4. Run the main script
         env:
+          # Секреты для Telegram
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
           SESSION_STRING: ${{ secrets.SESSION_STRING }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python main.py # Убедитесь, что ваш скрипт называется main.py
+          
+          # ⬇️⬇️⬇️ ИЗМЕНЕНИЕ ЗДЕСЬ: Передаем токен от Hugging Face ⬇️⬇️⬇️
+          HF_API_TOKEN: ${{ secrets.HF_API_TOKEN }}
+          
+        run: python main.py
 
       - name: 5. Commit and push if there are changes
         run: |
           git config user.name "GitHub Actions Bot"
           git config user.email "actions@github.com"
-          # Добавляем только если файл изменился
           git add rss.xml
-          # Коммитим только если есть что коммитить
+          # Коммитим, только если есть изменения
           git diff --staged --quiet || git commit -m "🗞️ Auto-update RSS feed"
           git push
