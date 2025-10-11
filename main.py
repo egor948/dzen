@@ -74,7 +74,7 @@ async def get_channel_posts():
     print(f"Найдено {len(all_posts)} уникальных постов.")
     return "\n\n---\n\n".join(p['text'] for p in all_posts)
 
-def _call_cloudflare_ai(model, payload, timeout=180):
+def _call_cloudflare_ai(model, payload, timeout=240): # ⬅️⬅️⬅️ ИЗМЕНЕНИЕ 1: Увеличен таймаут
     """Универсальная функция для вызова API Cloudflare."""
     if not CF_ACCOUNT_ID or not CF_API_TOKEN: return None
     api_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{model}"
@@ -118,21 +118,38 @@ def cluster_news_into_storylines(all_news_text):
 """
     response = _call_cloudflare_ai(TEXT_MODEL, {"messages": [{"role": "user", "content": prompt}]})
     if not response: return []
+    
+    # ⬇️⬇️⬇️ ИЗМЕНЕНИЕ 2: Супер-устойчивый парсер JSON ⬇️⬇️⬇️
     try:
         raw_response = response.json()["result"]["response"]
+        
+        json_string = None
+        # Ищем основной блок JSON
         match = re.search(r'```json(.*?)```', raw_response, re.DOTALL)
         if not match:
             match = re.search(r'(\[.*\])', raw_response, re.DOTALL)
 
         if match:
             json_string = match.group(1).strip() if len(match.groups()) > 0 else match.group(0).strip()
-            storylines = json.loads(json_string)
-            print(f"Найдено {len(storylines)} сюжетов для статей.")
-            return storylines
         else:
             print("Не удалось найти JSON-блок в ответе модели.")
             print("Сырой ответ от модели:", raw_response)
             return []
+
+        # Попытка "вылечить" недописанный JSON
+        # Если строка не заканчивается на ']', но содержит '}', пытаемся закрыть массив
+        if not json_string.endswith(']') and '}' in json_string:
+            last_brace_index = json_string.rfind('}')
+            # Убедимся, что после последней скобки нет запятой
+            if last_brace_index + 1 < len(json_string) and json_string[last_brace_index + 1].strip() == ',':
+                 json_string = json_string[:last_brace_index + 1] + ']'
+            elif last_brace_index + 1 == len(json_string):
+                 json_string = json_string + ']'
+
+        storylines = json.loads(json_string)
+        print(f"Найдено {len(storylines)} сюжетов для статей.")
+        return storylines
+
     except (json.JSONDecodeError, KeyError) as e:
         print(f"Ошибка декодирования JSON ответа модели: {e}")
         if 'raw_response' in locals():
@@ -377,7 +394,6 @@ async def run_rss_generator():
         with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
             f.write(f'processed_storylines_json={storylines_json}\n')
 
-# ⬇️⬇️⬇️ ИСПРАВЛЕНИЕ ЗДЕСЬ ⬇️⬇️⬇️
 if __name__ == "__main__":
     if len(sys.argv) > 2 and sys.argv[1] == '--mode':
         mode = sys.argv[2]
@@ -391,5 +407,6 @@ if __name__ == "__main__":
             if storylines_json_env:
                 run_telegram_poster(storylines_json_env)
     else:
-        # Это сообщение будет видно только при локальном запуске без аргументов
-        print("Режим работы не указан. Запустите с --mode generate_rss или --mode post_to_telegram.")
+        # Для локального тестирования
+        print("Режим не указан. Запуск в режиме генерации RSS для теста.")
+        asyncio.run(run_rss_generator())
