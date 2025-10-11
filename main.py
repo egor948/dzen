@@ -90,7 +90,7 @@ def _call_cloudflare_ai(model, payload, timeout=180):
 def cluster_news_into_storylines(all_news_text):
     """Группирует новости в потенциальные сюжеты для статей."""
     print("Этап 1: Группировка новостей в сюжеты...")
-    prompt = f"""[INST]Проанализируй новостной поток ниже. Твоя задача — найти МАКСИМАЛЬНОЕ количество независимых сюжетов, из которых можно сделать качественные журналистские статьи. Сюжет может быть основан даже на одной-двух очень содержательных новостях. Игнорируй только совсем короткие, несвязанные или рекламные упоминания.
+    prompt = f"""[INST]Твоя задача — выступить в роли главного редактора. Проанализируй весь новостной поток ниже и найди МАКСИМАЛЬНОЕ количество потенциальных сюжетов для статей. Будь менее строгим: сюжет может быть основан даже на одной-двух очень содержательных новостях. Твоя цель — качество, но и количество. Отбрасывай только совсем короткие, несвязанные или рекламные упоминания.
 
 Для каждого найденного сюжета верни следующую информацию:
 1. `title`: Краткое рабочее название сюжета НА РУССКОМ ЯЗЫКЕ (например, "Трансферная сага Мбаппе", "Результаты матчей АПЛ", "Скандал в Итальянском футболе").
@@ -216,9 +216,11 @@ def update_rss_file(processed_storylines):
     except (FileNotFoundError, ET.ParseError):
         root = ET.Element("rss", version="2.0")
         channel = ET.SubElement(root, "channel")
-        ET.SubElement(channel, "title").text = "Футбольные Новости от AI"
+        
+        # ⬇️⬇️⬇️ ОБНОВЛЕННАЯ "ШАПКА" RSS СОГЛАСНО ВАШИМ ТРЕБОВАНИЯМ ⬇️⬇️⬇️
+        ET.SubElement(channel, "title").text = "НА БАНКЕ"
         ET.SubElement(channel, "link").text = GITHUB_REPO_URL
-        ET.SubElement(channel, "description").text = "Самые свежие футбольные новости, сгенерированные нейросетью"
+        ET.SubElement(channel, "description").text = "«НА БАНКЕ». Все главные футбольные новости и слухи в одном месте. Трансферы, инсайды и честное мнение. Говорим о футболе так, как будто сидим с тобой на скамейке запасных."
 
     for storyline in reversed(processed_storylines):
         article_text = storyline.get('article')
@@ -247,7 +249,6 @@ def update_rss_file(processed_storylines):
     items = channel.findall('item')
     if len(items) > MAX_RSS_ITEMS:
         print(f"В RSS стало {len(items)} статей. Удаляем старые...")
-        # ⬇️⬇️⬇️ НОВАЯ ЛОГИКА: Удаление старых изображений ⬇️⬇️⬇️
         for old_item in items[MAX_RSS_ITEMS:]:
             enclosure = old_item.find('enclosure')
             if enclosure is not None:
