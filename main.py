@@ -34,7 +34,7 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHANNEL_USERNAME = os.environ.get("TELEGRAM_CHANNEL_USERNAME", "").strip()
 
 # ================== Модели AI и прочие настройки ==================
-TEXT_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct"
+TEXT_MODEL = "@cf/mistral/mistral-7b-instruct-v0.1"
 IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell"
 
 RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
