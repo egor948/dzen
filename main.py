@@ -34,8 +34,8 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHANNEL_USERNAME = os.environ.get("TELEGRAM_CHANNEL_USERNAME", "").strip()
 
 # ================== Модели AI и прочие настройки ==================
-# ⬇️⬇️⬇️ ВАШ ВЫБОР: ОПТИМИЗИРОВАННАЯ LLAMA 3 ⬇️⬇️⬇️
-TEXT_MODEL = "@cf/meta/llama-3-8b-instruct-awq"
+# ⬇️⬇️⬇️ МЕНЯЕМ МОДЕЛЬ НА GPT-OSS ⬇️⬇️⬇️
+TEXT_MODEL = "@cf/openai/gpt-oss-120b"
 IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell"
 
 RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
@@ -103,8 +103,6 @@ def clean_ai_artifacts(text):
 def cluster_news_into_storylines(all_news_text):
     """Группирует новости в потенциальные сюжеты для статей."""
     print("Этап 1: Группировка новостей в сюжеты...")
-    
-    # ⬇️⬇️⬇️ ПРОМПТ, АДАПТИРОВАННЫЙ ДЛЯ LLAMA 3 С ТЕГАМИ <json> ⬇️⬇️⬇️
     prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
 Ты — главный редактор. Проанализируй новости и найди от 3 до 5 сюжетов.
 
@@ -120,20 +118,15 @@ def cluster_news_into_storylines(all_news_text):
 """
     response = _call_cloudflare_ai(TEXT_MODEL, {"messages": [{"role": "system", "content": prompt}]})
     if not response: return []
-    
-    # ⬇️⬇️⬇️ НАДЕЖНЫЙ ПАРСЕР, ИЩУЩИЙ ТЕГИ <json> ⬇️⬇️⬇️
     try:
         raw_response = response.json()["result"]["response"]
         match = re.search(r'<json>(.*?)</json>', raw_response, re.DOTALL)
         if match:
             json_string = match.group(1).strip()
-            
-            # Попытка "вылечить" недописанный JSON
             if not json_string.endswith(']') and '}' in json_string:
                 last_brace_index = json_string.rfind('}')
                 if last_brace_index != -1:
                     json_string = json_string[:last_brace_index + 1] + ']'
-
             storylines = json.loads(json_string)
             print(f"Найдено {len(storylines)} сюжетов для статей.")
             return storylines
@@ -150,8 +143,6 @@ def cluster_news_into_storylines(all_news_text):
 def write_article_for_storyline(storyline):
     """Пишет статью по конкретному сюжету."""
     print(f"Этап 2: Написание статьи на тему '{storyline['title']}'...")
-    
-    # ⬇️⬇️⬇️ ПРОМПТ, АДАПТИРОВАННЫЙ ДЛЯ LLAMA 3 ⬇️⬇️⬇️
     prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
 Ты — первоклассный спортивный журналист, пишущий для ведущего русскоязычного издания. Твоя задача — написать захватывающую, фактически точную и объемную статью на основе предоставленных новостей.
 
@@ -181,7 +172,6 @@ def find_real_photo_on_google(storyline):
     if not GOOGLE_API_KEY or not GOOGLE_CSE_ID: return None
     queries = storyline.get("search_queries", [])
     if not queries: return None
-
     for query in queries:
         print(f"Этап 3 (Основной): Поиск легального фото в Google по запросу: '{query}'...")
         url = "https://www.googleapis.com/customsearch/v1"
@@ -193,7 +183,6 @@ def find_real_photo_on_google(storyline):
             if "items" in data and data["items"]:
                 image_url = data["items"][0]["link"]
                 if not image_url.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
-                    print(f"Найден неподходящий формат изображения: {image_url}. Пробуем следующий запрос.")
                     continue
                 image_response = requests.get(image_url, timeout=60, headers={'User-Agent': 'Mozilla/5.0'})
                 image_response.raise_for_status()
@@ -252,11 +241,9 @@ def update_rss_file(processed_storylines):
                 start_of_body_index = i + 1
                 break
         if not title:
-            print("Пропускаем статью: не удалось извлечь заголовок.")
             continue
         full_text = '\n'.join(lines[start_of_body_index:]).strip()
         if not full_text:
-            print(f"Пропускаем статью '{title}': отсутствует основной текст после заголовка.")
             continue
         item = ET.Element("item")
         ET.SubElement(item, "title").text = title
@@ -313,7 +300,6 @@ def run_telegram_poster(storylines_json):
         if not title: continue
         full_text = '\n'.join(lines[start_of_body_index:]).strip()
         if not storyline.get('image_url'):
-            print(f"Для статьи '{title}' не найдено изображение. Отправка только текста.")
             url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
             text = f"<b>{title}</b>\n\n{full_text}"
             if len(text) > 4096: text = text[:4093] + "..."
@@ -336,7 +322,6 @@ async def run_rss_generator():
     # ... (эта функция без изменений)
     combined_text = await get_channel_posts()
     if not combined_text or len(combined_text) < 100:
-        print("Новых постов для обработки недостаточно.")
         return
     if len(combined_text) > 30000:
         combined_text = combined_text[:30000]
@@ -349,7 +334,6 @@ async def run_rss_generator():
     processed_storylines = []
     for storyline in storylines:
         if len(storyline.get("news_texts", "")) < 100:
-            print(f"Пропускаем сюжет '{storyline.get('title')}' из-за недостатка материала.")
             continue
         storyline_with_article = write_article_for_storyline(storyline)
         if not storyline_with_article: continue
