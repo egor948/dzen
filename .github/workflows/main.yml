@@ -2,12 +2,10 @@
 name: Auto RSS Update
 
 on:
-  # Позволяет запускать вручную из вкладки "Actions"
   workflow_dispatch:
-  # Запускает по расписанию
   schedule:
-    # Запуск в 09:00, 13:00, 17:00 и 21:00 по UTC (соответствует 12:00, 16:00, 20:00, 00:00 UTC+3)
-    - cron: '0 9,13,17,21 * * *'
+    # Запуск каждый час с 07:00 до 21:00 по UTC (соответствует 10:00 - 00:00 UTC+3)
+    - cron: '0 7-21 * * *'
 
 jobs:
   update-rss:
@@ -36,6 +34,127 @@ jobs:
         run: |
           git config user.name "GitHub Actions Bot"
           git config user.email "actions@github.com"
-          git add rss.xml
+          # Добавляем все изменения (и rss, и картинки)
+          git add .
           git diff --staged --quiet || git commit -m "🗞️ Auto-update RSS feed"
-          git push
+          git push```
+*(Обратите внимание, я также изменил `git add rss.xml` на `git add .`, чтобы в коммит попадали и новые сгенерированные изображения).*
+
+---
+
+### 2, 3 и 4. Финальный код `main.py` с новой логикой ИИ, RSS и генерацией изображений
+
+Этот код — результат всей нашей работы. Он реализует всё, что вы просили.
+
+**Пожалуйста, полностью замените содержимое вашего `main.py` на этот финальный код:**
+```python
+# main.py
+import os
+import requests
+import datetime
+from datetime import timedelta
+from telethon import TelegramClient
+from telethon.sessions import StringSession
+import xml.etree.ElementTree as ET
+import xml.dom.minidom as minidom
+import asyncio
+import json
+import re
+
+# ================= НАСТРОЙКИ =================
+# Telegram
+API_ID = os.environ.get("API_ID")
+API_HASH = os.environ.get("API_HASH")
+SESSION_STRING = os.environ.get("SESSION_STRING")
+
+if not API_ID or not API_HASH or not SESSION_STRING:
+    raise ValueError("Один из секретов Telegram не задан!")
+
+client = TelegramClient(StringSession(SESSION_STRING), int(API_ID), API_HASH)
+
+# Новый, расширенный список каналов
+CHANNELS_LIST = [
+    "breakevens", "spurstg", "bluecityzens", "manutd_one", "lexusarsenal", "sixELCE", "astonvillago",
+    "tg_barca", "ZZoneRM", "psgdot", "FcMilanItaly", "Vstakane", "LaligaOfficial_rus", "SportEPL", "tg_epl",
+    "bundesliga_live", "wearethearsenal", "tg_calcio", "italianfootbol", "Match_TV", "bundesligas1",
+    "fcbarca_sports", "englishntvplus", "sportsrufootball", "sportsru", "real_sports", "atleticosmadrid",
+    "amfans", "asmonacoRU", "NFFCCOYR", "fcBrightonHoveAlbion", "albionevening", "LeipzigFans", "BayerFanChannel",
+    "BundesligaRuNET", "Herr_Baboba", "borussia_bundesliga", "Juventus2015", "bc_atalanta", "asromasiamonoi",
+    "forzainter_ru", "internazionalemilanoo1908", "milanews_ru", "abibyllaev", "englandblog", "telingaterEPL", "tgprimera"
+]
+CHANNELS = sorted(list(set(CHANNELS_LIST))) # Удаляем дубликаты и сортируем
+
+# ================== Cloudflare AI ==================
+CF_ACCOUNT_ID = os.environ.get("CF_ACCOUNT_ID", "").strip()
+CF_API_TOKEN = os.environ.get("CF_API_TOKEN", "").strip()
+
+if not CF_ACCOUNT_ID or not CF_API_TOKEN:
+    raise ValueError("CF_ACCOUNT_ID или CF_API_TOKEN не заданы в секретах GitHub!")
+
+# Модели для текста и изображений
+TEXT_MODEL = "@cf/mistral/mistral-7b-instruct-v0.1"
+IMAGE_MODEL = "@cf/stabilityai/stable-diffusion-xl-base-1.0"
+
+# ================== Прочие настройки ==================
+RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
+IMAGE_DIR = os.path.join(os.getcwd(), "images") # Папка для хранения картинок
+MAX_RSS_ITEMS = 30 # Увеличим максимальное количество статей в ленте
+GITHUB_REPO_URL = f"https://github.com/{os.environ.get('GITHUB_REPOSITORY', '')}"
+# ===============================================
+
+async def get_channel_posts():
+    """Собирает новости за последний час."""
+    all_posts = []
+    now = datetime.datetime.now(datetime.timezone.utc)
+    cutoff = now - timedelta(hours=1) # Собираем новости за последний час
+    async with client:
+        for channel_name in CHANNELS:
+            print(f"Парсинг канала: {channel_name}...")
+            try:
+                async for msg in client.iter_messages(channel_name, limit=50): # Меньше лимит, т.к. период меньше
+                    if msg.date < cutoff: break
+                    if msg.text: all_posts.append({"text": msg.text.strip()})
+            except Exception as e:
+                print(f"Не удалось получить посты из канала '{channel_name}': {e}")
+    unique_posts = list(dict.fromkeys(p['text'] for p in all_posts))
+    print(f"Найдено {len(unique_posts)} уникальных постов.")
+    return "\n\n---\n\n".join(unique_posts)
+
+def _call_cloudflare_ai(model, payload, timeout=180):
+    """Универсальная функция для вызова API Cloudflare."""
+    api_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{model}"
+    headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
+    try:
+        response = requests.post(api_url, headers=headers, json=payload, timeout=timeout)
+        response.raise_for_status()
+        return response
+    except requests.exceptions.RequestException as e:
+        print(f"Ошибка HTTP-запроса к Cloudflare API: {e}")
+        if e.response is not None:
+            print(f"Ответ сервера ({e.response.status_code}): {e.response.text}")
+        return None
+
+def cluster_news_into_storylines(all_news_text):
+    """Группирует новости в потенциальные сюжеты для статей."""
+    print("Этап 1: Группировка новостей в сюжеты...")
+    prompt = f"""[INST]Проанализируй новостной поток ниже. Твоя задача — найти несколько (от 2 до 5) независимых сюжетов, из которых можно сделать качественные журналистские статьи. Игнорируй короткие, несвязанные или рекламные новости.
+
+Для каждого найденного сюжета верни следующую информацию:
+1. `title`: Краткое рабочее название сюжета (например, "Трансферная сага Мбаппе", "Результаты матчей АПЛ", "Скандал в Итальянском футболе").
+2. `category`: Одно-два слова, категория для RSS (например, "Трансферы", "АПЛ", "Серия А", "Скандалы").
+3. `news_texts`: ПОЛНЫЙ и НЕИЗМЕНЕННЫЙ текст всех новостей, относящихся к этому сюжету.
+
+Твой ответ ДОЛЖЕН БЫТЬ ТОЛЬКО в формате JSON-массива. Пример:
+```json
+[
+  {{
+    "title": "Рабочее название сюжета 1",
+    "category": "Категория 1",
+    "news_texts": "Полный текст новости 1...\\n---\\nПолный текст новости 2..."
+  }},
+  {{
+    "title": "Рабочее название сюжета 2",
+    "category": "Категория 2",
+    "news_texts": "Полный текст новости 3...\\n---\\nПолный текст новости 4..."
+  }}
+]
