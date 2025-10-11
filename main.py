@@ -34,8 +34,8 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHANNEL_USERNAME = os.environ.get("TELEGRAM_CHANNEL_USERNAME", "").strip()
 
 # ================== Модели AI и прочие настройки ==================
-TEXT_MODEL = "@cf/mistral/mistral-7b-instruct-v0.1"
-IMAGE_MODEL = "@cf/stabilityai/stable-diffusion-xl-base-1.0"
+# ⬇️⬇️⬇️ МЕНЯЕМ МОДЕЛЬ НА LLAMA 3 ⬇️⬇️⬇️
+TEXT_MODEL = "@cf/meta/llama-3-8b-instruct"
 RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
 IMAGE_DIR = os.path.join(os.getcwd(), "images")
 MAX_RSS_ITEMS = 30
@@ -101,25 +101,26 @@ def clean_ai_artifacts(text):
 def cluster_news_into_storylines(all_news_text):
     """Группирует новости в потенциальные сюжеты для статей."""
     print("Этап 1: Группировка новостей в сюжеты...")
-    prompt = f"""[INST]Твоя задача — выступить в роли главного редактора. Проанализируй весь новостной поток ниже и найди от 3 до 5 самых интересных и независимых сюжетов для статей. Будь смелее в выборе: сюжет может быть основан даже на одной очень содержательной новости. Твоя цель — найти как можно больше качественного материала. Отбрасывай только совсем короткие, несвязанные или рекламные упоминания.
+    
+    # ⬇️⬇️⬇️ НОВЫЙ ПРОМПТ ДЛЯ КЛАСТЕРИЗАЦИИ И ПОИСКА ФОТО ⬇️⬇️⬇️
+    prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
+Ты — главный редактор спортивного новостного агентства. Твоя задача — проанализировать новостной поток и найти несколько (от 3 до 5) самых интересных сюжетов для статей.
 
-Для каждого найденного сюжета верни следующую информацию:
+Для каждого сюжета верни JSON-объект со следующими полями:
 1. `title`: Краткое рабочее название сюжета НА РУССКОМ ЯЗЫКЕ.
 2. `category`: Одно-два слова, категория для RSS НА РУССКОМ ЯЗЫКЕ.
-3. `search_query`: Ключевые слова на АНГЛИЙСКОМ для поиска релевантной фотографии.
-4. `priority`: Приоритет сюжета. Если новость очень важная (топ-клуб, известный игрок, скандал), ставь 'high'. В остальных случаях — 'normal'.
-5. `news_texts`: ПОЛНЫЙ и НЕИЗМЕНЕННЫЙ текст всех новостей, относящихся к этому сюжету.
+3. `search_queries`: JSON-массив из 2-3 prioritized поисковых запросов на АНГЛИЙСКОМ для поиска фото. Первым должен быть самый конкретный запрос (игрок + клуб), последним — самый общий (стадион, эмблема клуба).
+4. `news_texts`: ПОЛНЫЙ и НЕИЗМЕНЕННЫЙ текст всех новостей по этому сюжету.
 
-Твой ответ ДОЛЖЕН БЫТЬ ТОЛЬКО в формате JSON-массива.
-[/INST]
-
+Твой ответ ДОЛЖЕН БЫТЬ ТОЛЬКО в формате JSON-массива. Никакого лишнего текста.
+Пример для `search_queries`: ["Kylian Mbappe Real Madrid official photo", "Kylian Mbappe portrait", "Santiago Bernabeu stadium"]<|eot_id|><|start_header_id|>user<|end_header_id|>
 НОВОСТИ:
 ---
 {all_news_text}
 ---
-JSON:
+JSON:<|eot_id|><|start_header_id|>assistant<|end_header_id|>
 """
-    response = _call_cloudflare_ai(TEXT_MODEL, {"prompt": prompt, "max_tokens": 2048})
+    response = _call_cloudflare_ai(TEXT_MODEL, {"messages": [{"role": "system", "content": prompt}]})
     if not response: return []
     try:
         raw_response = response.json()["result"]["response"]
@@ -136,29 +137,25 @@ JSON:
 def write_article_for_storyline(storyline):
     """Пишет статью по конкретному сюжету."""
     print(f"Этап 2: Написание статьи на тему '{storyline['title']}'...")
-    prompt = f"""[INST]Ты — первоклассный спортивный журналист, известный своим глубоким анализом и увлекательным стилем изложения. Твоя задача — написать объемную, "плотную" и захватывающую статью для Яндекс.Дзен на основе предоставленных новостей.
+    
+    # ⬇️⬇️⬇️ НОВЫЙ ПРОМПТ ДЛЯ НАПИСАНИЯ СТАТЬИ ⬇️⬇️⬇️
+    prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
+Ты — первоклассный спортивный журналист, пишущий для ведущего русскоязычного издания. Твоя задача — написать захватывающую, фактически точную и объемную статью на основе предоставленных новостей.
 
-**Рабочее название сюжета:** "{storyline['title']}"
+**САМОЕ ГЛАВНОЕ ПРАВИЛО: Статья должна быть написана ИСКЛЮЧИТЕЛЬНО НА РУССКОМ ЯЗЫКЕ и строго на основе предоставленных фактов.**
 
-**САМОЕ ГЛАВНОЕ ПРАВИЛО: Статья должна быть написана ИСКЛЮЧИТЕЛЬНО НА РУССКОМ ЯЗЫКЕ.**
-
-**СТРОГИЕ ТРЕБОВАНИЯ К СТАТЬЕ:**
-1.  **НАЧИНАЙ СРАЗУ С ЗАГОЛОВКА.** Заголовок должен быть ярким, интригующим, но абсолютно правдивым, на РУССКОМ ЯЗЫКЕ.
-2.  **ОБЪЕМ И ГЛУБИНА:** Не торопись. Раскрой тему подробно. Напиши несколько развернутых абзацев. Текст должен быть содержательным и "плотным", без "воды".
-3.  **СТИЛЬ:** Пиши как эксперт. Текст должен быть грамотным, аналитичным и увлекательным.
-4.  **СТРУКТУРА:** Создай цельное повествование с логичным началом, развитием и завершением.
-5.  **ЗАПРЕТЫ:** **НИКОГДА** не используй подзаголовки ("Введение", "Заключение" и т.п.), дисклеймеры или маркеры типа "Статья:".
-
-Твоя цель — готовый журналистский продукт на безупречном РУССКОМ языке.
-[/INST]
-
+**ТРЕБОВАНИЯ:**
+1.  **Начинай сразу с заголовка.** Заголовок должен быть ярким, интригующим, но правдивым.
+2.  **Никаких выдумок.** Не добавляй факты, имена или даты, которых нет в исходных новостях.
+3.  **Пиши как эксперт:** глубокий анализ, увлекательный стиль, цельное повествование.
+4.  **ЗАПРЕТЫ:** НИКОГДА не используй подзаголовки ("Введение", "Заключение"), дисклеймеры или маркеры ("Статья:").<|eot_id|><|start_header_id|>user<|end_header_id|>
 НОВОСТИ ДЛЯ АНАЛИЗА:
 ---
 {storyline['news_texts']}
 ---
-ГОТОВАЯ СТАТЬЯ:
+ГОТОВАЯ СТАТЬЯ:<|eot_id|><|start_header_id|>assistant<|end_header_id|>
 """
-    response = _call_cloudflare_ai(TEXT_MODEL, {"prompt": prompt, "max_tokens": 1500})
+    response = _call_cloudflare_ai(TEXT_MODEL, {"messages": [{"role": "system", "content": prompt}], "max_tokens": 1500})
     if response:
         raw_article_text = response.json()["result"]["response"]
         cleaned_article_text = clean_ai_artifacts(raw_article_text)
@@ -170,59 +167,45 @@ def find_real_photo_on_google(storyline):
     """Ищет реальное фото с лицензией на использование через Google Search API."""
     if not GOOGLE_API_KEY or not GOOGLE_CSE_ID: return None
     
-    query = storyline.get("search_query")
-    if not query: return None
+    # ⬇️⬇️⬇️ НОВАЯ ЛОГИКА: Последовательный поиск по нескольким запросам ⬇️⬇️⬇️
+    queries = storyline.get("search_queries", [])
+    if not queries: return None
 
-    print(f"Этап 3 (Основной): Поиск легального фото в Google по запросу: '{query}'...")
-    url = "https://www.googleapis.com/customsearch/v1"
-    params = {
-        "key": GOOGLE_API_KEY,
-        "cx": GOOGLE_CSE_ID,
-        "q": query,
-        "searchType": "image",
-        "rights": "cc_publicdomain,cc_attribute", # Фильтр по лицензии
-        "num": 1,
-        "imgSize": "large"
-    }
-    try:
-        response = requests.get(url, params=params, timeout=30)
-        response.raise_for_status()
-        data = response.json()
-        if "items" in data and data["items"]:
-            image_url = data["items"][0]["link"]
-            image_response = requests.get(image_url, timeout=60, headers={'User-Agent': 'Mozilla/5.0'})
-            image_response.raise_for_status()
-            os.makedirs(IMAGE_DIR, exist_ok=True)
-            timestamp = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
-            image_filename = f"{timestamp}.jpg"
-            image_path = os.path.join(IMAGE_DIR, image_filename)
-            with open(image_path, "wb") as f: f.write(image_response.content)
-            print(f"Фото из Google успешно сохранено: {image_path}")
-            storyline['image_url'] = f"{GITHUB_REPO_URL.replace('github.com', 'raw.githubusercontent.com')}/main/images/{image_filename}"
-            return storyline
-        else:
-            print("В Google Images ничего не найдено (с учетом лицензии).")
-            return None
-    except requests.exceptions.RequestException as e:
-        print(f"Ошибка при обращении к Google Search API: {e}")
-        return None
-
-def generate_ai_image(storyline):
-    """Генерирует AI изображение как запасной вариант."""
-    # ... (эта функция без изменений)
-    title = storyline['article'].split('\n', 1)[0]
-    print(f"Этап 3 (Запасной): Генерация AI изображения для статьи '{title}'...")
-    prompt = f"dramatic, ultra-realistic, 4k photo of: {title}. Professional sports photography, cinematic lighting"
-    response = _call_cloudflare_ai(IMAGE_MODEL, {"prompt": prompt})
-    if not response or response.status_code != 200: return None
-    os.makedirs(IMAGE_DIR, exist_ok=True)
-    timestamp = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
-    image_filename = f"{timestamp}.png"
-    image_path = os.path.join(IMAGE_DIR, image_filename)
-    with open(image_path, "wb") as f: f.write(response.content)
-    print(f"AI изображение успешно сохранено: {image_path}")
-    storyline['image_url'] = f"{GITHUB_REPO_URL.replace('github.com', 'raw.githubusercontent.com')}/main/images/{image_filename}"
-    return storyline
+    for query in queries:
+        print(f"Этап 3 (Основной): Поиск легального фото в Google по запросу: '{query}'...")
+        url = "https://www.googleapis.com/customsearch/v1"
+        params = {
+            "key": GOOGLE_API_KEY, "cx": GOOGLE_CSE_ID, "q": query,
+            "searchType": "image", "rights": "cc_publicdomain,cc_attribute,cc_sharealike",
+            "num": 1, "imgSize": "large"
+        }
+        try:
+            response = requests.get(url, params=params, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            if "items" in data and data["items"]:
+                image_url = data["items"][0]["link"]
+                # Проверяем, что картинка не является .svg или .gif, которые плохо поддерживаются
+                if not image_url.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+                    print(f"Найден неподходящий формат изображения: {image_url}. Пробуем следующий запрос.")
+                    continue
+                
+                image_response = requests.get(image_url, timeout=60, headers={'User-Agent': 'Mozilla/5.0'})
+                image_response.raise_for_status()
+                os.makedirs(IMAGE_DIR, exist_ok=True)
+                timestamp = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+                image_filename = f"{timestamp}.jpg"
+                image_path = os.path.join(IMAGE_DIR, image_filename)
+                with open(image_path, "wb") as f: f.write(image_response.content)
+                print(f"Фото из Google успешно сохранено: {image_path}")
+                storyline['image_url'] = f"{GITHUB_REPO_URL.replace('github.com', 'raw.githubusercontent.com')}/main/images/{image_filename}"
+                return storyline # Возвращаем результат при первом же успехе
+        except requests.exceptions.RequestException as e:
+            print(f"Ошибка при обращении к Google Search API с запросом '{query}': {e}")
+            continue # Пробуем следующий запрос
+    
+    print("В Google Images ничего не найдено (с учетом лицензии) по всем запросам.")
+    return None
 
 def update_rss_file(processed_storylines):
     """Обновляет RSS-файл, добавляя новые статьи и удаляя старые."""
@@ -243,10 +226,8 @@ def update_rss_file(processed_storylines):
         article_text = storyline.get('article')
         if not article_text: continue
         
-        # ⬇️⬇️⬇️ НОВАЯ, НАДЕЖНАЯ ЛОГИКА ИЗВЛЕЧЕНИЯ ЗАГОЛОВКА ⬇️⬇️⬇️
         lines = article_text.strip().split('\n')
-        title = ""
-        start_of_body_index = 0
+        title, start_of_body_index = "", 0
         for i, line in enumerate(lines):
             if line.strip():
                 title = line.strip().replace("**", "").replace('"', '')
@@ -258,6 +239,9 @@ def update_rss_file(processed_storylines):
             continue
             
         full_text = '\n'.join(lines[start_of_body_index:]).strip()
+        if not full_text:
+            print(f"Пропускаем статью '{title}': отсутствует основной текст после заголовка.")
+            continue
 
         item = ET.Element("item")
         ET.SubElement(item, "title").text = title
@@ -306,13 +290,10 @@ def run_telegram_poster(storylines_json):
 
     for storyline in storylines:
         article_text = storyline.get('article')
-        image_url = storyline.get('image_url')
-        if not article_text or not image_url: continue
+        if not article_text: continue
         
-        # ⬇️⬇️⬇️ ИСПОЛЬЗУЕМ ТУ ЖЕ НАДЕЖНУЮ ЛОГИКУ ИЗВЛЕЧЕНИЯ ЗАГОЛОВКА ⬇️⬇️⬇️
         lines = article_text.strip().split('\n')
-        title = ""
-        start_of_body_index = 0
+        title, start_of_body_index = "", 0
         for i, line in enumerate(lines):
             if line.strip():
                 title = line.strip().replace("**", "").replace('"', '')
@@ -322,10 +303,20 @@ def run_telegram_poster(storylines_json):
         if not title: continue
         full_text = '\n'.join(lines[start_of_body_index:]).strip()
 
-        caption = f"<b>{title}</b>\n\n{full_text}"
-        if len(caption) > 1024: caption = caption[:1021] + "..."
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
-        payload = { 'chat_id': f"@{TELEGRAM_CHANNEL_USERNAME}", 'photo': image_url, 'caption': caption, 'parse_mode': 'HTML' }
+        # Если нет картинки, отправляем только текст
+        if not storyline.get('image_url'):
+            print(f"Для статьи '{title}' не найдено изображение. Отправка только текста.")
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+            text = f"<b>{title}</b>\n\n{full_text}"
+            if len(text) > 4096: text = text[:4093] + "..."
+            payload = { 'chat_id': f"@{TELEGRAM_CHANNEL_USERNAME}", 'text': text, 'parse_mode': 'HTML' }
+        else:
+            image_url = storyline['image_url']
+            caption = f"<b>{title}</b>\n\n{full_text}"
+            if len(caption) > 1024: caption = caption[:1021] + "..."
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+            payload = { 'chat_id': f"@{TELEGRAM_CHANNEL_USERNAME}", 'photo': image_url, 'caption': caption, 'parse_mode': 'HTML' }
+            
         try:
             response = requests.post(url, json=payload, timeout=60)
             response.raise_for_status()
@@ -354,15 +345,9 @@ async def run_rss_generator():
         storyline_with_article = write_article_for_storyline(storyline)
         if not storyline_with_article: continue
         
-        # ⬇️⬇️⬇️ НОВАЯ "УМНАЯ" СТРАТЕГИЯ ИЗОБРАЖЕНИЙ ⬇️⬇️⬇️
-        final_storyline = None
-        if storyline.get('priority') == 'high' and GOOGLE_API_KEY:
-            final_storyline = find_real_photo_on_google(storyline_with_article)
-        
-        if not final_storyline:
-            final_storyline = generate_ai_image(storyline_with_article)
+        final_storyline = find_real_photo_on_google(storyline_with_article)
             
-        processed_storylines.append(final_storyline or storyline_with_article)
+        processed_storylines.append(final_storyline or storyline_with_article) # Добавляем даже если фото не найдено
     
     update_rss_file(processed_storylines)
     storylines_json = json.dumps(processed_storylines)
