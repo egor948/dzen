@@ -90,16 +90,26 @@ def _call_cloudflare_ai(model, payload, timeout=180):
 
 def clean_ai_artifacts(text):
     """Программно удаляет распространенные 'артефакты' из текста ИИ."""
+    # Расширенный список слов и фраз для удаления (регистронезависимо)
     banned_phrases = [
-        "заключение:", "вывод:", "примечание:", "содержание:", "анализ:", "история развития событий:", "раскрытие деталей:",
-        "**заключение**", "**вывод**", "**примечание**", "**содержание**", "**анализ**",
-        "статья:", "готовая статья:"
+        "вступление", "конец", "приложение:", "источники:", "из автора:", "дополнительные комментарии:",
+        "заключение", "вывод", "примечание", "содержание", "анализ", "история развития событий:", "раскрытие деталей",
+        "резюме:", "призыв к действию:", "точная информация:", "голубая волна в милане", "право на выбор",
+        "ставка на судзуки", "конclusion:", "продолжение:"
     ]
+    
+    # Удаляем целые строки, которые начинаются с запрещенных фраз (с возможными ** по бокам)
     lines = text.split('\n')
-    cleaned_lines = [line for line in lines if not any(line.lower().strip().startswith(phrase) for phrase in banned_phrases)]
+    cleaned_lines = []
+    for line in lines:
+        # Убираем ** и пробелы для проверки
+        test_line = line.lower().strip().replace('*', '')
+        if not any(test_line.startswith(phrase) for phrase in banned_phrases):
+            cleaned_lines.append(line)
+    
+    # Собираем текст обратно и удаляем возможные пустые строки в начале/конце
     cleaned_text = '\n'.join(cleaned_lines).strip()
-    for phrase in banned_phrases:
-        cleaned_text = re.sub(r'(?i)' + re.escape(phrase), '', cleaned_text)
+    
     return cleaned_text
 
 def cluster_news_into_storylines(all_news_text):
@@ -146,15 +156,15 @@ def write_article_for_storyline(storyline):
 **САМОЕ ГЛАВНОЕ ПРАВИЛО: Статья должна быть написана ИСКЛЮЧИТЕЛЬНО НА РУССКОМ ЯЗЫКЕ.**
 
 **СТРОГИЕ ТРЕБОВАНИЯ К СТАТЬЕ:**
-1.  **ЗАГОЛОВОК:** Твой ответ должен начинаться с яркого, интригующего, но абсолютно правдивого заголовка на РУССКОМ ЯЗЫКЕ. Заголовок должен быть на первой строке. НЕ ИСПОЛЬЗУЙ markdown или слова "Заголовок:".
-2.  **СТИЛЬ:** Пиши как эксперт. Текст должен быть грамотным, аналитичным и увлекательным, чтобы удерживать внимание читателя до самого конца.
-3.  **СТРУКТУРА:** Создай цельное повествование с логичным началом, развитием и завершением. Текст должен течь естественно, как статья в качественном издании.
+1.  **НАЧИНАЙ СРАЗУ С ЗАГОЛОВКА.** Заголовок должен быть ярким, интригующим, но абсолютно правдивым, на РУССКОМ ЯЗЫКЕ. Он должен быть на первой строке. НЕ ИСПОЛЬЗУЙ markdown или слова "Заголовок:".
+2.  **ПИШИ КАК ЭКСПЕРТ.** Твой текст должен быть грамотным, аналитичным и увлекательным, чтобы удерживать внимание читателя до самого конца.
+3.  **СОЗДАЙ ЦЕЛЬНОЕ ПОВЕСТВОВАНИЕ** с логичным началом, развитием и завершением. Текст должен течь естественно, как статья в качественном издании.
 4.  **ЗАПРЕТЫ:**
     *   **НИКОГДА** не используй подзаголовки вроде "Введение", "Раскрытие деталей", "Заключение", "Вывод", "Примечание", "Содержание" и т.п.
     *   **НИКОГДА** не добавляй оговорки или дисклеймеры о том, что информация может быть неточной.
     *   **НИКОГДА** не начинай текст со слов "Статья:" или похожих маркеров.
 
-Твоя цель — создать готовый журналистский продукт на безупречном РУССКОМ языке, который выглядит так, как будто его написал человек, а не ИИ.
+Твой ответ — это готовый журналистский продукт на безупречном РУССКОМ языке, который выглядит так, как будто его написал человек, а не ИИ.
 [/INST]
 
 НОВОСТИ ДЛЯ АНАЛИЗА:
@@ -172,10 +182,9 @@ def write_article_for_storyline(storyline):
     return None
 
 def find_real_photo_on_unsplash(storyline):
-    """Ищет реальное фото на Unsplash."""
+    # ... (эта функция без изменений)
     query = storyline.get("search_query")
     if not query: return None
-    
     print(f"Этап 3 (Основной): Поиск реального фото на Unsplash по запросу: '{query}'...")
     url = "https://api.unsplash.com/search/photos"
     params = { "query": query, "orientation": "landscape", "per_page": 1, "client_id": UNSPLASH_ACCESS_KEY }
@@ -204,14 +213,12 @@ def find_real_photo_on_unsplash(storyline):
         return None
 
 def generate_ai_image(storyline):
-    """Генерирует AI изображение как запасной вариант."""
+    # ... (эта функция без изменений)
     title = storyline['article'].split('\n', 1)[0]
     print(f"Этап 3 (Запасной): Генерация AI изображения для статьи '{title}'...")
     prompt = f"dramatic, ultra-realistic, 4k photo of: {title}. Professional sports photography, cinematic lighting"
-    
     response = _call_cloudflare_ai(IMAGE_MODEL, {"prompt": prompt})
     if not response or response.status_code != 200: return None
-
     os.makedirs(IMAGE_DIR, exist_ok=True)
     timestamp = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
     image_filename = f"{timestamp}.png"
@@ -222,7 +229,7 @@ def generate_ai_image(storyline):
     return storyline
 
 def update_rss_file(processed_storylines):
-    """Обновляет RSS-файл, добавляя новые статьи и удаляя старые статьи и изображения."""
+    # ... (эта функция без изменений)
     ET.register_namespace('yandex', 'http://news.yandex.ru')
     ET.register_namespace('media', 'http://search.yahoo.com/mrss/')
     try:
@@ -235,15 +242,23 @@ def update_rss_file(processed_storylines):
         ET.SubElement(channel, "title").text = "НА БАНКЕ"
         ET.SubElement(channel, "link").text = GITHUB_REPO_URL
         ET.SubElement(channel, "description").text = "«НА БАНКЕ». Все главные футбольные новости и слухи в одном месте. Трансферы, инсайды и честное мнение. Говорим о футболе так, как будто сидим с тобой на скамейке запасных."
-
     for storyline in reversed(processed_storylines):
         article_text = storyline.get('article')
         if not article_text: continue
         parts = article_text.strip().split('\n', 1)
-        if len(parts) < 2: continue
         
-        title = parts[0].strip().replace("**", "").replace("Заголовок:", "").strip()
+        # ⬇️⬇️⬇️ "ЗАЩИТА ОТ БРАКА": Пропускаем статью, если заголовок пустой ⬇️⬇️⬇️
+        if len(parts) < 2 or not parts[0].strip():
+            print("Пропускаем статью: сгенерирован ответ без заголовка или основного текста.")
+            continue
+        
+        title = parts[0].strip().replace("**", "").replace("Заголовок:", "").strip().replace('"', '')
         full_text = parts[1].strip()
+
+        # Еще одна проверка на случай, если заголовок стал пустым после очистки
+        if not title:
+            print("Пропускаем статью: заголовок пуст после очистки.")
+            continue
         
         item = ET.Element("item")
         ET.SubElement(item, "title").text = title
@@ -259,7 +274,6 @@ def update_rss_file(processed_storylines):
         ET.SubElement(item, "pubDate").text = datetime.datetime.now(datetime.timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
         ET.SubElement(item, "guid", isPermaLink="false").text = str(hash(title))
         channel.insert(3, item)
-
     items = channel.findall('item')
     if len(items) > MAX_RSS_ITEMS:
         print(f"В RSS стало {len(items)} статей. Удаляем старые...")
@@ -277,7 +291,6 @@ def update_rss_file(processed_storylines):
                     except Exception as e:
                         print(f"Не удалось удалить изображение {image_filename}: {e}")
             channel.remove(old_item)
-
     xml_string = ET.tostring(root, 'utf-8')
     pretty_xml = minidom.parseString(xml_string).toprettyxml(indent="  ")
     with open(RSS_FILE_PATH, "w", encoding="utf-8") as f:
@@ -286,16 +299,15 @@ def update_rss_file(processed_storylines):
 
 
 async def main():
+    # ... (эта функция без изменений)
     combined_text = await get_channel_posts()
     if not combined_text or len(combined_text) < 200:
         print("Новых постов для обработки недостаточно.")
         return
     if len(combined_text) > 30000:
         combined_text = combined_text[:30000]
-
     storylines = cluster_news_into_storylines(combined_text)
     if not storylines: return
-        
     processed_storylines = []
     for storyline in storylines:
         if len(storyline.get("news_texts", "")) < 150:
@@ -307,7 +319,6 @@ async def main():
         if not final_storyline:
             final_storyline = generate_ai_image(storyline_with_article)
         processed_storylines.append(final_storyline or storyline_with_article)
-    
     update_rss_file(processed_storylines)
 
 if __name__ == "__main__":
