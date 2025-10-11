@@ -22,11 +22,12 @@ if not API_ID or not API_HASH or not SESSION_STRING:
 
 client = TelegramClient(StringSession(SESSION_STRING), int(API_ID), API_HASH)
 
+# ОБНОВЛЕННЫЙ СПИСОК КАНАЛОВ
 CHANNELS_LIST = [
     "breakevens", "spurstg", "bluecityzens", "manutd_one", "lexusarsenal", "sixELCE", "astonvillago",
     "tg_barca", "ZZoneRM", "psgdot", "FcMilanItaly", "Vstakane", "LaligaOfficial_rus", "SportEPL", "tg_epl",
-    "bundesliga_live", "wearethearsenal", "tg_calcio", "italianfootbol", "Match_TV", "bundesligas1",
-    "fcbarca_sports", "englishntvplus", "sportsrufootball", "sportsru", "real_sports", "atleticosmadrid",
+    "bundesliga_live", "wearethearsenal", "tg_calcio", "italianfootbol", "bundesligas1",
+    "fcbarca_sports", "englishntvplus", "sportsrufootball", "real_sports", "atleticosmadrid",
     "amfans", "asmonacoRU", "NFFCCOYR", "fcBrightonHoveAlbion", "albionevening", "LeipzigFans", "BayerFanChannel",
     "BundesligaRuNET", "Herr_Baboba", "borussia_bundesliga", "Juventus2015", "bc_atalanta", "asromasiamonoi",
     "forzainter_ru", "internazionalemilanoo1908", "milanews_ru", "abibyllaev", "englandblog", "telingaterEPL", "tgprimera"
@@ -87,6 +88,20 @@ def _call_cloudflare_ai(model, payload, timeout=180):
             print(f"Ответ сервера ({e.response.status_code}): {e.response.text}")
         return None
 
+def clean_ai_artifacts(text):
+    """Программно удаляет распространенные 'артефакты' из текста ИИ."""
+    banned_phrases = [
+        "заключение:", "вывод:", "примечание:", "содержание:", "анализ:", "история развития событий:", "раскрытие деталей:",
+        "**заключение**", "**вывод**", "**примечание**", "**содержание**", "**анализ**",
+        "статья:", "готовая статья:"
+    ]
+    lines = text.split('\n')
+    cleaned_lines = [line for line in lines if not any(line.lower().strip().startswith(phrase) for phrase in banned_phrases)]
+    cleaned_text = '\n'.join(cleaned_lines).strip()
+    for phrase in banned_phrases:
+        cleaned_text = re.sub(r'(?i)' + re.escape(phrase), '', cleaned_text)
+    return cleaned_text
+
 def cluster_news_into_storylines(all_news_text):
     """Группирует новости в потенциальные сюжеты для статей."""
     print("Этап 1: Группировка новостей в сюжеты...")
@@ -131,15 +146,15 @@ def write_article_for_storyline(storyline):
 **САМОЕ ГЛАВНОЕ ПРАВИЛО: Статья должна быть написана ИСКЛЮЧИТЕЛЬНО НА РУССКОМ ЯЗЫКЕ.**
 
 **СТРОГИЕ ТРЕБОВАНИЯ К СТАТЬЕ:**
-1.  **ЗАГОЛОВОК:** Твой ответ должен начинаться с яркого, интригующего, но абсолютно правдивого заголовка на РУССКОМ ЯЗЫКЕ. Заголовок должен быть на первой строке. НЕ ИСПОЛЬЗУЙ markdown (символы `*` или `**`) или слова "Заголовок:" в начале.
-2.  **СТИЛЬ:** Пиши как эксперт. Твой текст должен быть грамотным, аналитичным и увлекательным. Он должен удерживать внимание читателя до самого конца.
+1.  **ЗАГОЛОВОК:** Твой ответ должен начинаться с яркого, интригующего, но абсолютно правдивого заголовка на РУССКОМ ЯЗЫКЕ. Заголовок должен быть на первой строке. НЕ ИСПОЛЬЗУЙ markdown или слова "Заголовок:".
+2.  **СТИЛЬ:** Пиши как эксперт. Текст должен быть грамотным, аналитичным и увлекательным, чтобы удерживать внимание читателя до самого конца.
 3.  **СТРУКТУРА:** Создай цельное повествование с логичным началом, развитием и завершением. Текст должен течь естественно, как статья в качественном издании.
 4.  **ЗАПРЕТЫ:**
-    *   **КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО** использовать подзаголовки вроде "Введение", "Раскрытие деталей", "Заключение", "Вывод", "Примечание", "Содержание" и т.п.
-    *   **КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО** добавлять любые оговорки, дисклеймеры или примечания о том, что информация может быть неточной или неподтвержденной.
-    *   **КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО** начинать текст со слов "Статья:" или похожих маркеров.
+    *   **НИКОГДА** не используй подзаголовки вроде "Введение", "Раскрытие деталей", "Заключение", "Вывод", "Примечание", "Содержание" и т.п.
+    *   **НИКОГДА** не добавляй оговорки или дисклеймеры о том, что информация может быть неточной.
+    *   **НИКОГДА** не начинай текст со слов "Статья:" или похожих маркеров.
 
-Твоя цель — создать готовый журналистский продукт на безупречном РУССКОМ языке.
+Твоя цель — создать готовый журналистский продукт на безупречном РУССКОМ языке, который выглядит так, как будто его написал человек, а не ИИ.
 [/INST]
 
 НОВОСТИ ДЛЯ АНАЛИЗА:
@@ -148,10 +163,11 @@ def write_article_for_storyline(storyline):
 ---
 ГОТОВАЯ СТАТЬЯ:
 """
-    response = _call_cloudflare_ai(TEXT_MODEL, {"prompt": prompt, "max_tokens": 1024})
+    response = _call_cloudflare_ai(TEXT_MODEL, {"prompt": prompt, "max_tokens": 1500})
     if response:
-        article_text = response.json()["result"]["response"]
-        storyline['article'] = article_text
+        raw_article_text = response.json()["result"]["response"]
+        cleaned_article_text = clean_ai_artifacts(raw_article_text)
+        storyline['article'] = cleaned_article_text
         return storyline
     return None
 
@@ -216,8 +232,6 @@ def update_rss_file(processed_storylines):
     except (FileNotFoundError, ET.ParseError):
         root = ET.Element("rss", version="2.0")
         channel = ET.SubElement(root, "channel")
-        
-        # ⬇️⬇️⬇️ ОБНОВЛЕННАЯ "ШАПКА" RSS СОГЛАСНО ВАШИМ ТРЕБОВАНИЯМ ⬇️⬇️⬇️
         ET.SubElement(channel, "title").text = "НА БАНКЕ"
         ET.SubElement(channel, "link").text = GITHUB_REPO_URL
         ET.SubElement(channel, "description").text = "«НА БАНКЕ». Все главные футбольные новости и слухи в одном месте. Трансферы, инсайды и честное мнение. Говорим о футболе так, как будто сидим с тобой на скамейке запасных."
