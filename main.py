@@ -12,7 +12,6 @@ import json
 import re
 import sys
 
-# ... (все НАСТРОЙКИ и СПИСОК КАНАЛОВ остаются без изменений) ...
 # ================= НАСТРОЙКИ =================
 # Telegram-парсер инициализируется по необходимости.
 CHANNELS_LIST = [
@@ -35,8 +34,8 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHANNEL_USERNAME = os.environ.get("TELEGRAM_CHANNEL_USERNAME", "").strip()
 
 # ================== Модели AI и прочие настройки ==================
-TEXT_MODEL = "@cf/meta/llama-3-8b-instruct"
-IMAGE_MODEL = "@cf/stabilityai/stable-diffusion-xl-base-1.0"
+# ⬇️⬇️⬇️ МЕНЯЕМ МОДЕЛЬ НА CODE LLAMA ДЛЯ СТАБИЛЬНОГО JSON ⬇️⬇️⬇️
+TEXT_MODEL = "@cf/thebloke/codellama-7b-instruct-awq"
 RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
 IMAGE_DIR = os.path.join(os.getcwd(), "images")
 MAX_RSS_ITEMS = 30
@@ -48,7 +47,6 @@ BANNED_PHRASES = [
     "точная информация:", "голубая волна в милане", "право на выбор", "ставка на судзуки",
     "конclusion:", "продолжение:", "статья:", "готовая статья:"
 ]
-
 
 async def get_channel_posts():
     """Собирает новости за последний час."""
@@ -103,10 +101,9 @@ def clean_ai_artifacts(text):
 def cluster_news_into_storylines(all_news_text):
     """Группирует новости в потенциальные сюжеты для статей."""
     print("Этап 1: Группировка новостей в сюжеты...")
-    prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
-Ты — главный редактор спортивного новостного агентства. Твоя задача — проанализировать новостной поток и найти несколько (от 3 до 5) самых интересных сюжетов для статей.
+    prompt = f"""[INST]Твоя задача — выступить в роли главного редактора. Проанализируй весь новостной поток ниже и найди от 3 до 5 самых интересных и независимых сюжетов для статей. Будь смелее в выборе: сюжет может быть основан даже на одной очень содержательной новости. Твоя цель — найти как можно больше качественного материала. Отбрасывай только совсем короткие, несвязанные или рекламные упоминания.
 
-Для каждого сюжета верни JSON-объект со следующими полями:
+Для каждого найденного сюжета верни следующую информацию:
 1. `title`: Краткое рабочее название сюжета НА РУССКОМ ЯЗЫКЕ.
 2. `category`: Одно-два слова, категория для RSS НА РУССКОМ ЯЗЫКЕ.
 3. `search_queries`: JSON-массив из 2-3 prioritized поисковых запросов на АНГЛИЙСКОМ для поиска фото. Первым должен быть самый конкретный запрос (игрок + клуб), последним — самый общий (стадион, эмблема клуба).
@@ -114,17 +111,17 @@ def cluster_news_into_storylines(all_news_text):
 5. `news_texts`: ПОЛНЫЙ и НЕИЗМЕНЕННЫЙ текст всех новостей по этому сюжету.
 
 Твой ответ ДОЛЖЕН БЫТЬ ТОЛЬКО в формате JSON-массива. Никакого лишнего текста.
-Пример для `search_queries`: ["Kylian Mbappe Real Madrid official photo", "Kylian Mbappe portrait", "Santiago Bernabeu stadium"]<|eot_id|><|start_header_id|>user<|end_header_id|>
+[/INST]
+
 НОВОСТИ:
 ---
 {all_news_text}
 ---
-JSON:<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+JSON:
 """
-    response = _call_cloudflare_ai(TEXT_MODEL, {"messages": [{"role": "system", "content": prompt}]})
+    response = _call_cloudflare_ai(TEXT_MODEL, {"prompt": prompt, "max_tokens": 2048})
     if not response: return []
     
-    # ⬇️⬇️⬇️ "ГЕНИАЛЬНЫЙ" ПАРСЕР JSON ⬇️⬇️⬇️
     try:
         raw_response = response.json()["result"]["response"]
         storylines = []
@@ -132,11 +129,9 @@ JSON:<|eot_id|><|start_header_id|>assistant<|end_header_id|>
         for match in re.finditer(r'\{.*?\}', raw_response, re.DOTALL):
             try:
                 storyline = json.loads(match.group(0))
-                # Проверяем, что в объекте есть обязательные поля
                 if 'title' in storyline and 'news_texts' in storyline:
                     storylines.append(storyline)
             except json.JSONDecodeError:
-                # Игнорируем невалидные JSON-фрагменты
                 continue
         
         if storylines:
@@ -146,7 +141,6 @@ JSON:<|eot_id|><|start_header_id|>assistant<|end_header_id|>
             print("Не удалось извлечь ни одного валидного JSON-объекта из ответа модели.")
             print("Сырой ответ от модели:", raw_response)
             return []
-
     except KeyError as e:
         print(f"Ошибка в структуре ответа от Cloudflare: {e}")
         return []
@@ -154,8 +148,9 @@ JSON:<|eot_id|><|start_header_id|>assistant<|end_header_id|>
 def write_article_for_storyline(storyline):
     """Пишет статью по конкретному сюжету."""
     print(f"Этап 2: Написание статьи на тему '{storyline['title']}'...")
-    prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
-Ты — первоклассный спортивный журналист, пишущий для ведущего русскоязычного издания. Твоя задача — написать захватывающую, фактически точную и объемную статью на основе предоставленных новостей.
+    prompt = f"""[INST]Ты — первоклассный спортивный журналист, известный своим глубоким анализом и увлекательным стилем изложения. Твоя задача — написать объемную, "плотную" и захватывающую статью для Яндекс.Дзен на основе предоставленных новостей.
+
+**Рабочее название сюжета:** "{storyline['title']}"
 
 **САМОЕ ГЛАВНОЕ ПРАВИЛО: Статья должна быть написана ИСКЛЮЧИТЕЛЬНО НА РУССКОМ ЯЗЫКЕ и строго на основе предоставленных фактов.**
 
@@ -163,14 +158,16 @@ def write_article_for_storyline(storyline):
 1.  **Начинай сразу с заголовка.** Заголовок должен быть ярким, интригующим, но правдивым.
 2.  **Никаких выдумок.** Не добавляй факты, имена или даты, которых нет в исходных новостях.
 3.  **Пиши как эксперт:** глубокий анализ, увлекательный стиль, цельное повествование.
-4.  **ЗАПРЕТЫ:** НИКОГДА не используй подзаголовки ("Введение", "Заключение"), дисклеймеры или маркеры ("Статья:").<|eot_id|><|start_header_id|>user<|end_header_id|>
+4.  **ЗАПРЕТЫ:** НИКОГДА не используй подзаголовки ("Введение", "Заключение"), дисклеймеры или маркеры ("Статья:").
+[/INST]
+
 НОВОСТИ ДЛЯ АНАЛИЗА:
 ---
 {storyline['news_texts']}
 ---
-ГОТОВАЯ СТАТЬЯ:<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+ГОТОВАЯ СТАТЬЯ:
 """
-    response = _call_cloudflare_ai(TEXT_MODEL, {"messages": [{"role": "system", "content": prompt}], "max_tokens": 1500})
+    response = _call_cloudflare_ai(TEXT_MODEL, {"prompt": prompt, "max_tokens": 1500})
     if response:
         raw_article_text = response.json()["result"]["response"]
         cleaned_article_text = clean_ai_artifacts(raw_article_text)
@@ -179,7 +176,7 @@ def write_article_for_storyline(storyline):
     return None
 
 def find_real_photo_on_google(storyline):
-    # ... (эта функция без изменений)
+    """Ищет реальное фото с лицензией на использование через Google Search API."""
     if not GOOGLE_API_KEY or not GOOGLE_CSE_ID: return None
     queries = storyline.get("search_queries", [])
     if not queries: return None
