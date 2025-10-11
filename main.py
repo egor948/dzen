@@ -34,8 +34,8 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHANNEL_USERNAME = os.environ.get("TELEGRAM_CHANNEL_USERNAME", "").strip()
 
 # ================== Модели AI и прочие настройки ==================
-# ⬇️⬇️⬇️ ВОЗВРАЩАЕМСЯ К СТАБИЛЬНОЙ И ПРОВЕРЕННОЙ MISTRAL ⬇️⬇️⬇️
-TEXT_MODEL = "@cf/mistral/mistral-7b-instruct-v0.1"
+# ⬇️⬇️⬇️ ВАШ ВЫБОР: ОПТИМИЗИРОВАННАЯ LLAMA 3 ⬇️⬇️⬇️
+TEXT_MODEL = "@cf/meta/llama-3-8b-instruct-awq"
 IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell"
 
 RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
@@ -51,7 +51,7 @@ BANNED_PHRASES = [
 ]
 
 async def get_channel_posts():
-    # ... (эта функция без изменений)
+    """Собирает новости за последний час."""
     API_ID = os.environ.get("API_ID")
     API_HASH = os.environ.get("API_HASH")
     SESSION_STRING = os.environ.get("SESSION_STRING")
@@ -76,7 +76,7 @@ async def get_channel_posts():
     return "\n\n---\n\n".join(p['text'] for p in all_posts)
 
 def _call_cloudflare_ai(model, payload, timeout=240):
-    # ... (эта функция без изменений)
+    """Универсальная функция для вызова API Cloudflare."""
     if not CF_ACCOUNT_ID or not CF_API_TOKEN: return None
     api_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{model}"
     headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
@@ -90,7 +90,7 @@ def _call_cloudflare_ai(model, payload, timeout=240):
         return None
 
 def clean_ai_artifacts(text):
-    # ... (эта функция без изменений)
+    """Программно удаляет распространенные 'артефакты' из текста ИИ."""
     lines = text.split('\n')
     cleaned_lines = []
     for line in lines:
@@ -104,22 +104,21 @@ def cluster_news_into_storylines(all_news_text):
     """Группирует новости в потенциальные сюжеты для статей."""
     print("Этап 1: Группировка новостей в сюжеты...")
     
-    # ⬇️⬇️⬇️ ПРОМПТ, АДАПТИРОВАННЫЙ ДЛЯ MISTRAL ⬇️⬇️⬇️
-    prompt = f"""[INST]Твоя задача — выступить в роли главного редактора. Проанализируй весь новостной поток ниже и найди от 3 до 5 самых интересных и независимых сюжетов для статей.
+    # ⬇️⬇️⬇️ ПРОМПТ, АДАПТИРОВАННЫЙ ДЛЯ LLAMA 3 С ТЕГАМИ <json> ⬇️⬇️⬇️
+    prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
+Ты — главный редактор. Проанализируй новости и найди от 3 до 5 сюжетов.
 
 Для каждого сюжета верни JSON-объект с полями: `title` (название на русском), `category` (категория на русском), `search_queries` (массив из 2-3 запросов на английском для фото), `priority` ('high' или 'normal') и `news_texts` (полный текст новостей).
 
 Твой ответ ДОЛЖЕН содержать валидный JSON-массив, обернутый в теги <json> и </json>. Никакого лишнего текста вне этих тегов.
-Пример: <json>[{{"title": "...", ...}}]</json>
-[/INST]
-
+Пример: <json>[{{"title": "...", ...}}]</json><|eot_id|><|start_header_id|>user<|end_header_id|>
 НОВОСТИ:
 ---
 {all_news_text}
 ---
-ОТВЕТ:
+ОТВЕТ:<|eot_id|><|start_header_id|>assistant<|end_header_id|>
 """
-    response = _call_cloudflare_ai(TEXT_MODEL, {"prompt": prompt, "max_tokens": 2048})
+    response = _call_cloudflare_ai(TEXT_MODEL, {"messages": [{"role": "system", "content": prompt}]})
     if not response: return []
     
     # ⬇️⬇️⬇️ НАДЕЖНЫЙ ПАРСЕР, ИЩУЩИЙ ТЕГИ <json> ⬇️⬇️⬇️
@@ -152,23 +151,24 @@ def write_article_for_storyline(storyline):
     """Пишет статью по конкретному сюжету."""
     print(f"Этап 2: Написание статьи на тему '{storyline['title']}'...")
     
-    # ⬇️⬇️⬇️ ПРОМПТ, АДАПТИРОВАННЫЙ ДЛЯ MISTRAL ⬇️⬇️⬇️
-    prompt = f"""[INST]Ты — первоклассный спортивный журналист. Напиши захватывающую, фактически точную и объемную статью на РУССКОМ ЯЗЫКЕ на основе новостей ниже.
+    # ⬇️⬇️⬇️ ПРОМПТ, АДАПТИРОВАННЫЙ ДЛЯ LLAMA 3 ⬇️⬇️⬇️
+    prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
+Ты — первоклассный спортивный журналист, пишущий для ведущего русскоязычного издания. Твоя задача — написать захватывающую, фактически точную и объемную статью на основе предоставленных новостей.
+
+**САМОЕ ГЛАВНОЕ ПРАВИЛО: Статья должна быть написана ИСКЛЮЧИТЕЛЬНО НА РУССКОМ ЯЗЫКЕ и строго на основе предоставленных фактов.**
 
 **ТРЕБОВАНИЯ:**
 1.  **Начинай сразу с заголовка.** Заголовок должен быть ярким, интригующим, но правдивым.
-2.  **Никаких выдумок.** Не добавляй факты, которых нет в исходных новостях.
+2.  **Никаких выдумок.** Не добавляй факты, имена или даты, которых нет в исходных новостях.
 3.  **Пиши как эксперт:** глубокий анализ, увлекательный стиль, цельное повествование.
-4.  **ЗАПРЕТЫ:** НИКОГДА не используй подзаголовки ("Введение", "Заключение"), дисклеймеры или маркеры ("Статья:").
-[/INST]
-
+4.  **ЗАПРЕТЫ:** НИКОГДА не используй подзаголовки ("Введение", "Заключение"), дисклеймеры или маркеры ("Статья:").<|eot_id|><|start_header_id|>user<|end_header_id|>
 НОВОСТИ ДЛЯ АНАЛИЗА:
 ---
 {storyline['news_texts']}
 ---
-ГОТОВАЯ СТАТЬЯ:
+ГОТОВАЯ СТАТЬЯ:<|eot_id|><|start_header_id|>assistant<|end_header_id|>
 """
-    response = _call_cloudflare_ai(TEXT_MODEL, {"prompt": prompt, "max_tokens": 1500})
+    response = _call_cloudflare_ai(TEXT_MODEL, {"messages": [{"role": "system", "content": prompt}], "max_tokens": 1500})
     if response:
         raw_article_text = response.json()["result"]["response"]
         cleaned_article_text = clean_ai_artifacts(raw_article_text)
@@ -181,6 +181,7 @@ def find_real_photo_on_google(storyline):
     if not GOOGLE_API_KEY or not GOOGLE_CSE_ID: return None
     queries = storyline.get("search_queries", [])
     if not queries: return None
+
     for query in queries:
         print(f"Этап 3 (Основной): Поиск легального фото в Google по запросу: '{query}'...")
         url = "https://www.googleapis.com/customsearch/v1"
