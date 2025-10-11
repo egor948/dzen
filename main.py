@@ -14,7 +14,8 @@ import re
 # ================= НАСТРОЙКИ =================
 # Telegram
 API_ID = os.environ.get("API_ID")
-API_HASH = os.environ.get("API_HASH SESSION_STRING")
+API_HASH = os.environ.get("API_HASH")
+SESSION_STRING = os.environ.get("SESSION_STRING")
 
 if not API_ID or not API_HASH or not SESSION_STRING:
     raise ValueError("Один из секретов Telegram не задан!")
@@ -73,6 +74,7 @@ async def get_channel_posts():
     return "\n\n---\n\n".join(p['text'] for p in all_posts)
 
 def _call_cloudflare_ai(model, payload, timeout=180):
+    """Универсальная функция для вызова API Cloudflare."""
     api_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{model}"
     headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
     try:
@@ -122,7 +124,17 @@ JSON:
 def write_article_for_storyline(storyline):
     """Пишет статью по конкретному сюжету."""
     print(f"Этап 2: Написание статьи на тему '{storyline['title']}'...")
-    prompt = f"""[INST]Ты — профессиональный спортивный журналист... (ваш промпт без изменений) [/INST]
+    prompt = f"""[INST]Ты — профессиональный спортивный журналист с безупречной репутацией. Твоя задача — написать захватывающую, глубокую и объективную статью для Яндекс.Дзен на основе рабочего названия и набора новостей.
+
+**Рабочее название:** "{storyline['title']}"
+**Категория:** "{storyline['category']}"
+
+**Твои требования:**
+1. **Заголовок:** Создай яркий, интригующий, но абсолютно правдивый заголовок. Он должен быть на первой строке.
+2. **Стиль:** Пиши как эксперт — уверенно, аналитично и увлекательно. Используй богатый язык, избегай штампов и канцеляризмов. Текст должен удерживать внимание читателя до самого конца.
+3. **Структура:** Статья должна иметь логичное повествование: введение в проблему, раскрытие деталей в основной части и осмысленный вывод или прогноз в заключении. Не используй подзаголовки "Введение" или "Заключение".
+4. **Содержание:** Используй ТОЛЬКО факты из предоставленных новостей. Твоя работа — связать их в единую историю, а не просто перечислить.
+[/INST]
 
 НОВОСТИ ДЛЯ АНАЛИЗА:
 ---
@@ -136,8 +148,6 @@ def write_article_for_storyline(storyline):
         storyline['article'] = article_text
         return storyline
     return None
-
-# ⬇️⬇️⬇️ НОВАЯ ЛОГИКА РАБОТЫ С ИЗОБРАЖЕНИЯМИ ⬇️⬇️⬇️
 
 def find_real_photo_on_unsplash(storyline):
     """Ищет реальное фото на Unsplash."""
@@ -158,20 +168,14 @@ def find_real_photo_on_unsplash(storyline):
         data = response.json()
         if data["results"]:
             photo = data["results"][0]
-            image_url = photo["urls"]["regular"] # Берем средний размер
-            
-            # Скачиваем и сохраняем изображение
+            image_url = photo["urls"]["regular"]
             image_response = requests.get(image_url, timeout=60)
             image_response.raise_for_status()
-
             os.makedirs(IMAGE_DIR, exist_ok=True)
             timestamp = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
-            image_filename = f"{timestamp}.jpg" # Unsplash отдает jpeg
+            image_filename = f"{timestamp}.jpg"
             image_path = os.path.join(IMAGE_DIR, image_filename)
-            
-            with open(image_path, "wb") as f:
-                f.write(image_response.content)
-            
+            with open(image_path, "wb") as f: f.write(image_response.content)
             print(f"Фото с Unsplash успешно сохранено: {image_path}")
             storyline['image_url'] = f"{GITHUB_REPO_URL.replace('github.com', 'raw.githubusercontent.com')}/main/images/{image_filename}"
             return storyline
@@ -195,30 +199,64 @@ def generate_ai_image(storyline):
     timestamp = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
     image_filename = f"{timestamp}.png"
     image_path = os.path.join(IMAGE_DIR, image_filename)
-    
-    with open(image_path, "wb") as f:
-        f.write(response.content)
-    
+    with open(image_path, "wb") as f: f.write(response.content)
     print(f"AI изображение успешно сохранено: {image_path}")
     storyline['image_url'] = f"{GITHUB_REPO_URL.replace('github.com', 'raw.githubusercontent.com')}/main/images/{image_filename}"
     return storyline
 
 def update_rss_file(processed_storylines):
-    # ... (эта функция остается почти без изменений, только тип картинки)
-    # ...
+    """Обновляет RSS-файл, добавляя новые статьи и изображения."""
+    ET.register_namespace('yandex', 'http://news.yandex.ru')
+    ET.register_namespace('media', 'http://search.yahoo.com/mrss/')
+    try:
+        tree = ET.parse(RSS_FILE_PATH)
+        root = tree.getroot()
+        channel = root.find('channel')
+    except (FileNotFoundError, ET.ParseError):
+        root = ET.Element("rss", version="2.0")
+        channel = ET.SubElement(root, "channel")
+        ET.SubElement(channel, "title").text = "Футбольные Новости от AI"
+        ET.SubElement(channel, "link").text = GITHUB_REPO_URL
+        ET.SubElement(channel, "description").text = "Самые свежие футбольные новости, сгенерированные нейросетью"
+
+    for storyline in reversed(processed_storylines):
+        article_text = storyline.get('article')
+        if not article_text: continue
+        parts = article_text.strip().split('\n', 1)
+        if len(parts) < 2: continue
+        title, full_text = parts[0].strip(), parts[1].strip()
+        item = ET.Element("item")
+        ET.SubElement(item, "title").text = title
+        ET.SubElement(item, "link").text = GITHUB_REPO_URL
+        ET.SubElement(item, "author").text = "AI Спортивный Обозреватель"
+        ET.SubElement(item, "category").text = storyline.get('category', 'Общее')
+        yandex_full_text = ET.SubElement(item, "{http://news.yandex.ru}full-text")
+        yandex_full_text.text = full_text
         if storyline.get('image_url'):
             image_type = 'image/jpeg' if '.jpg' in storyline['image_url'] else 'image/png'
             enclosure = ET.SubElement(item, "enclosure")
             enclosure.set('url', storyline['image_url'])
             enclosure.set('type', image_type)
-    # ... (остальной код тот же)
+        ET.SubElement(item, "pubDate").text = datetime.datetime.now(datetime.timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
+        ET.SubElement(item, "guid", isPermaLink="false").text = str(hash(title))
+        channel.insert(3, item)
+
+    items = channel.findall('item')
+    if len(items) > MAX_RSS_ITEMS:
+        for old_item in items[MAX_RSS_ITEMS:]:
+            channel.remove(old_item)
+
+    xml_string = ET.tostring(root, 'utf-8')
+    pretty_xml = minidom.parseString(xml_string).toprettyxml(indent="  ")
+    with open(RSS_FILE_PATH, "w", encoding="utf-8") as f:
+        f.write(pretty_xml)
+    print(f"✅ RSS-лента успешно обновлена. Теперь в ней {len(channel.findall('item'))} статей.")
 
 async def main():
     combined_text = await get_channel_posts()
     if not combined_text or len(combined_text) < 200:
         print("Новых постов для обработки недостаточно.")
         return
-    
     if len(combined_text) > 30000:
         combined_text = combined_text[:30000]
 
@@ -230,18 +268,11 @@ async def main():
         if len(storyline.get("news_texts", "")) < 150:
             print(f"Пропускаем сюжет '{storyline.get('title')}' из-за недостатка материала.")
             continue
-
         storyline_with_article = write_article_for_storyline(storyline)
         if not storyline_with_article: continue
-
-        # ⬇️⬇️⬇️ НОВАЯ ЛОГИКА ВЫБОРА ИЗОБРАЖЕНИЯ ⬇️⬇️⬇️
-        # Сначала пытаемся найти реальное фото
         final_storyline = find_real_photo_on_unsplash(storyline_with_article)
-        
-        # Если не нашли, генерируем AI картинку
         if not final_storyline:
             final_storyline = generate_ai_image(storyline_with_article)
-            
         processed_storylines.append(final_storyline or storyline_with_article)
     
     update_rss_file(processed_storylines)
