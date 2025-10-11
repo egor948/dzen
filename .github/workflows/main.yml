@@ -2,12 +2,8 @@
 name: Auto RSS Update
 
 on:
-  # Позволяет запускать вручную из вкладки "Actions"
   workflow_dispatch:
-  # Запускает по расписанию
   schedule:
-    # ⬇️⬇️⬇️ 1. НОВОЕ РАСПИСАНИЕ ⬇️⬇️⬇️
-    # Запуск каждый час с 07:00 до 21:00 по UTC (соответствует 10:00 - 00:00 UTC+3)
     - cron: '0 7-21 * * *'
 
 jobs:
@@ -30,7 +26,7 @@ jobs:
 
       - name: 4. Run the main script
         env:
-          # Секреты для Telegram
+          # Секреты для Telegram (парсер)
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
           SESSION_STRING: ${{ secrets.SESSION_STRING }}
@@ -38,9 +34,13 @@ jobs:
           # Секреты для Cloudflare AI
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-
-          # ⬇️⬇️⬇️ 2. НОВЫЙ СЕКРЕТ ДЛЯ UNSPLASH ⬇️⬇️⬇️
+          
+          # Секрет для Unsplash
           UNSPLASH_ACCESS_KEY: ${{ secrets.UNSPLASH_ACCESS_KEY }}
+          
+          # ⬇️⬇️⬇️ НОВЫЕ СЕКРЕТЫ ДЛЯ TELEGRAM-ПОСТИНГА ⬇️⬇️⬇️
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_USERNAME: ${{ secrets.TELEGRAM_CHANNEL_USERNAME }}
           
         run: python main.py
 
@@ -48,10 +48,6 @@ jobs:
         run: |
           git config user.name "GitHub Actions Bot"
           git config user.email "actions@github.com"
-
-          # ⬇️⬇️⬇️ 3. ОБНОВЛЕННЫЙ КОММИТ (добавляет и rss, и картинки) ⬇️⬇️⬇️
           git add .
-
-          # Коммитим, только если есть изменения
           git diff --staged --quiet || git commit -m "🗞️ Auto-update RSS feed"
           git push
