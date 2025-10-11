@@ -34,9 +34,8 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHANNEL_USERNAME = os.environ.get("TELEGRAM_CHANNEL_USERNAME", "").strip()
 
 # ================== Модели AI и прочие настройки ==================
-# ⬇️⬇️⬇️ ВАШ ВЫБОР: СОВРЕМЕННАЯ И БЫСТРАЯ МОДЕЛЬ MISTRAL SMALL ⬇️⬇️⬇️
-TEXT_MODEL = "@cf/mistral/mistral-small-latest" 
-IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell"
+# ⬇️⬇️⬇️ ВОЗВРАЩАЕМСЯ К 100% РАБОЧЕЙ МОДЕЛИ MISTRAL-7B ⬇️⬇️⬇️
+TEXT_MODEL = "@cf/mistral/mistral-7b-instruct-v0.1"
 
 RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
 IMAGE_DIR = os.path.join(os.getcwd(), "images")
@@ -51,7 +50,7 @@ BANNED_PHRASES = [
 ]
 
 async def get_channel_posts():
-    """Собирает новости за последний час."""
+    # ... (эта функция без изменений)
     API_ID = os.environ.get("API_ID")
     API_HASH = os.environ.get("API_HASH")
     SESSION_STRING = os.environ.get("SESSION_STRING")
@@ -76,7 +75,7 @@ async def get_channel_posts():
     return "\n\n---\n\n".join(p['text'] for p in all_posts)
 
 def _call_cloudflare_ai(model, payload, timeout=240):
-    """Универсальная функция для вызова API Cloudflare."""
+    # ... (эта функция без изменений)
     if not CF_ACCOUNT_ID or not CF_API_TOKEN: return None
     api_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{model}"
     headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
@@ -90,7 +89,7 @@ def _call_cloudflare_ai(model, payload, timeout=240):
         return None
 
 def clean_ai_artifacts(text):
-    """Программно удаляет распространенные 'артефакты' из текста ИИ."""
+    # ... (эта функция без изменений)
     lines = text.split('\n')
     cleaned_lines = []
     for line in lines:
@@ -103,8 +102,6 @@ def clean_ai_artifacts(text):
 def cluster_news_into_storylines(all_news_text):
     """Группирует новости в потенциальные сюжеты для статей."""
     print("Этап 1: Группировка новостей в сюжеты...")
-    
-    # ⬇️⬇️⬇️ ПРОМПТ, АДАПТИРОВАННЫЙ ДЛЯ MISTRAL ⬇️⬇️⬇️
     prompt = f"""[INST]Твоя задача — выступить в роли главного редактора. Проанализируй новостной поток ниже и найди от 3 до 5 самых интересных и независимых сюжетов для статей.
 
 Для каждого сюжета верни JSON-объект с полями: `title` (название на русском), `category` (категория на русском), `search_queries` (массив из 2-3 запросов на английском для фото), `priority` ('high' или 'normal') и `news_texts` (полный текст новостей).
@@ -121,7 +118,6 @@ def cluster_news_into_storylines(all_news_text):
 """
     response = _call_cloudflare_ai(TEXT_MODEL, {"prompt": prompt, "max_tokens": 2048})
     if not response: return []
-    
     try:
         raw_response = response.json()["result"]["response"]
         match = re.search(r'<json>(.*?)</json>', raw_response, re.DOTALL)
@@ -147,8 +143,6 @@ def cluster_news_into_storylines(all_news_text):
 def write_article_for_storyline(storyline):
     """Пишет статью по конкретному сюжету."""
     print(f"Этап 2: Написание статьи на тему '{storyline['title']}'...")
-    
-    # ⬇️⬇️⬇️ ПРОМПТ, АДАПТИРОВАННЫЙ ДЛЯ MISTRAL ⬇️⬇️⬇️
     prompt = f"""[INST]Ты — первоклассный спортивный журналист. Напиши захватывающую, фактически точную и объемную статью на РУССКОМ ЯЗЫКЕ на основе новостей ниже.
 
 **ТРЕБОВАНИЯ:**
@@ -204,22 +198,6 @@ def find_real_photo_on_google(storyline):
             continue
     print("В Google Images ничего не найдено (с учетом лицензии) по всем запросам.")
     return None
-
-def generate_ai_image(storyline):
-    # ... (эта функция без изменений)
-    title = storyline['article'].split('\n', 1)[0]
-    print(f"Этап 3 (Запасной): Генерация AI изображения для статьи '{title}'...")
-    prompt = f"dramatic, ultra-realistic, 4k photo of: {title}. Professional sports photography, cinematic lighting"
-    response = _call_cloudflare_ai(IMAGE_MODEL, {"prompt": prompt})
-    if not response or response.status_code != 200: return None
-    os.makedirs(IMAGE_DIR, exist_ok=True)
-    timestamp = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
-    image_filename = f"{timestamp}.png"
-    image_path = os.path.join(IMAGE_DIR, image_filename)
-    with open(image_path, "wb") as f: f.write(response.content)
-    print(f"AI изображение успешно сохранено: {image_path}")
-    storyline['image_url'] = f"{GITHUB_REPO_URL.replace('github.com', 'raw.githubusercontent.com')}/main/images/{image_filename}"
-    return storyline
 
 def update_rss_file(processed_storylines):
     # ... (эта функция без изменений)
@@ -324,9 +302,10 @@ def run_telegram_poster(storylines_json):
             if e.response is not None: print(f"Ответ сервера Telegram: {e.response.text}")
 
 async def run_rss_generator():
-    # ... (эта функция без изменений)
+    """Основная логика генерации RSS и изображений."""
     combined_text = await get_channel_posts()
     if not combined_text or len(combined_text) < 100:
+        print("Новых постов для обработки недостаточно.")
         return
     if len(combined_text) > 30000:
         combined_text = combined_text[:30000]
@@ -339,15 +318,16 @@ async def run_rss_generator():
     processed_storylines = []
     for storyline in storylines:
         if len(storyline.get("news_texts", "")) < 100:
+            print(f"Пропускаем сюжет '{storyline.get('title')}' из-за недостатка материала.")
             continue
         storyline_with_article = write_article_for_storyline(storyline)
         if not storyline_with_article: continue
-        final_storyline = None
-        if storyline.get('priority') == 'high' and GOOGLE_API_KEY:
-            final_storyline = find_real_photo_on_google(storyline_with_article)
-        if not final_storyline:
-            final_storyline = generate_ai_image(storyline_with_article)
+        
+        # ⬇️⬇️⬇️ ОТКАЗЫВАЕМСЯ ОТ ГЕНЕРАЦИИ, ТОЛЬКО ПОИСК ⬇️⬇️⬇️
+        final_storyline = find_real_photo_on_google(storyline_with_article)
+            
         processed_storylines.append(final_storyline or storyline_with_article)
+    
     update_rss_file(processed_storylines)
     storylines_json = json.dumps(processed_storylines)
     if 'GITHUB_OUTPUT' in os.environ:
