@@ -12,17 +12,16 @@ import json
 import re
 
 # ================= НАСТРОЙКИ =================
-# Telegram
+# Telegram (парсер)
 API_ID = os.environ.get("API_ID")
 API_HASH = os.environ.get("API_HASH")
 SESSION_STRING = os.environ.get("SESSION_STRING")
 
 if not API_ID or not API_HASH or not SESSION_STRING:
-    raise ValueError("Один из секретов Telegram не задан!")
+    raise ValueError("Один из секретов Telegram для парсинга не задан!")
 
 client = TelegramClient(StringSession(SESSION_STRING), int(API_ID), API_HASH)
 
-# ОБНОВЛЕННЫЙ СПИСОК КАНАЛОВ
 CHANNELS_LIST = [
     "breakevens", "spurstg", "bluecityzens", "manutd_one", "lexusarsenal", "sixELCE", "astonvillago",
     "tg_barca", "ZZoneRM", "psgdot", "FcMilanItaly", "Vstakane", "LaligaOfficial_rus", "SportEPL", "tg_epl",
@@ -39,24 +38,65 @@ CF_ACCOUNT_ID = os.environ.get("CF_ACCOUNT_ID", "").strip()
 CF_API_TOKEN = os.environ.get("CF_API_TOKEN", "").strip()
 UNSPLASH_ACCESS_KEY = os.environ.get("UNSPLASH_ACCESS_KEY", "").strip()
 
-if not CF_ACCOUNT_ID or not CF_API_TOKEN:
-    raise ValueError("CF_ACCOUNT_ID или CF_API_TOKEN не заданы!")
-if not UNSPLASH_ACCESS_KEY:
-    raise ValueError("UNSPLASH_ACCESS_KEY не задан!")
+# ⬇️⬇️⬇️ НОВЫЕ КЛЮЧИ ДЛЯ TELEGRAM-ПОСТИНГА ⬇️⬇️⬇️
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+TELEGRAM_CHANNEL_USERNAME = os.environ.get("TELEGRAM_CHANNEL_USERNAME", "").strip()
 
-# ================== Модели AI ==================
+if not all([CF_ACCOUNT_ID, CF_API_TOKEN, UNSPLASH_ACCESS_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_USERNAME]):
+    raise ValueError("Один из обязательных API ключей или имен не задан!")
+
+# ================== Модели AI и прочие настройки ==================
 TEXT_MODEL = "@cf/mistral/mistral-7b-instruct-v0.1"
 IMAGE_MODEL = "@cf/stabilityai/stable-diffusion-xl-base-1.0"
-
-# ================== Прочие настройки ==================
 RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
 IMAGE_DIR = os.path.join(os.getcwd(), "images")
 MAX_RSS_ITEMS = 30
 GITHUB_REPO_URL = f"https://github.com/{os.environ.get('GITHUB_REPOSITORY', '')}"
 # ===============================================
 
+# ⬇️⬇️⬇️ НОВАЯ ФУНКЦИЯ ДЛЯ ПУБЛИКАЦИИ В TELEGRAM ⬇️⬇️⬇️
+def post_to_telegram_channel(storyline):
+    """Отправляет готовую статью с картинкой в Telegram-канал."""
+    print(f"Публикация статьи '{storyline.get('title')}' в Telegram-канал...")
+    
+    article_text = storyline.get('article')
+    image_url = storyline.get('image_url')
+
+    if not article_text or not image_url:
+        print("Недостаточно данных для публикации в Telegram (отсутствует текст или картинка).")
+        return
+
+    parts = article_text.strip().split('\n', 1)
+    if len(parts) < 2: return
+    
+    title = parts[0].strip().replace("**", "").replace("Заголовок:", "").strip().replace('"', '')
+    full_text = parts[1].strip()
+
+    # Форматируем текст для Telegram (HTML) и обрезаем, если он слишком длинный
+    caption = f"<b>{title}</b>\n\n{full_text}"
+    if len(caption) > 1024: # Лимит Telegram для подписи к фото
+        caption = caption[:1021] + "..."
+
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+    payload = {
+        'chat_id': f"@{TELEGRAM_CHANNEL_USERNAME}",
+        'photo': image_url,
+        'caption': caption,
+        'parse_mode': 'HTML'
+    }
+    
+    try:
+        response = requests.post(url, json=payload, timeout=60)
+        response.raise_for_status()
+        print("✅ Статья успешно опубликована в Telegram-канале.")
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Ошибка публикации в Telegram: {e}")
+        if e.response is not None:
+            print(f"Ответ сервера Telegram: {e.response.text}")
+
+
 async def get_channel_posts():
-    """Собирает новости за последний час."""
+    # ... (эта функция без изменений)
     all_posts, unique_texts = [], set()
     now = datetime.datetime.now(datetime.timezone.utc)
     cutoff = now - timedelta(hours=1)
@@ -74,8 +114,9 @@ async def get_channel_posts():
     print(f"Найдено {len(all_posts)} уникальных постов.")
     return "\n\n---\n\n".join(p['text'] for p in all_posts)
 
+
 def _call_cloudflare_ai(model, payload, timeout=180):
-    """Универсальная функция для вызова API Cloudflare."""
+    # ... (эта функция без изменений)
     api_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{model}"
     headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
     try:
@@ -88,34 +129,26 @@ def _call_cloudflare_ai(model, payload, timeout=180):
             print(f"Ответ сервера ({e.response.status_code}): {e.response.text}")
         return None
 
+
 def clean_ai_artifacts(text):
-    """Программно удаляет распространенные 'артефакты' из текста ИИ."""
-    # Расширенный список слов и фраз для удаления (регистронезависимо)
+    # ... (эта функция без изменений)
     banned_phrases = [
-        "вступление", "конец", "приложение:", "источники:", "из автора:", "дополнительные комментарии:",
-        "заключение", "вывод", "примечание", "содержание", "анализ", "история развития событий:", "раскрытие деталей",
-        "резюме:", "призыв к действию:", "точная информация:", "голубая волна в милане", "право на выбор",
-        "ставка на судзуки", "конclusion:", "продолжение:"
+        "заключение:", "вывод:", "примечание:", "содержание:", "анализ:", "история развития событий:", "раскрытие деталей:",
+        "**заключение**", "**вывод**", "**примечание**", "**содержание**", "**анализ**",
+        "статья:", "готовая статья:"
     ]
-    
-    # Удаляем целые строки, которые начинаются с запрещенных фраз (с возможными ** по бокам)
     lines = text.split('\n')
-    cleaned_lines = []
-    for line in lines:
-        # Убираем ** и пробелы для проверки
-        test_line = line.lower().strip().replace('*', '')
-        if not any(test_line.startswith(phrase) for phrase in banned_phrases):
-            cleaned_lines.append(line)
-    
-    # Собираем текст обратно и удаляем возможные пустые строки в начале/конце
+    cleaned_lines = [line for line in lines if not any(line.lower().strip().startswith(phrase) for phrase in banned_phrases)]
     cleaned_text = '\n'.join(cleaned_lines).strip()
-    
+    for phrase in banned_phrases:
+        cleaned_text = re.sub(r'(?i)' + re.escape(phrase), '', cleaned_text)
     return cleaned_text
 
+
 def cluster_news_into_storylines(all_news_text):
-    """Группирует новости в потенциальные сюжеты для статей."""
+    # ... (эта функция без изменений)
     print("Этап 1: Группировка новостей в сюжеты...")
-    prompt = f"""[INST]Твоя задача — выступить в роли главного редактора. Проанализируй весь новостной поток ниже и найди МАКСИМАЛЬНОЕ количество потенциальных сюжетов для статей. Будь менее строгим: сюжет может быть основан даже на одной-двух очень содержательных новостях. Твоя цель — качество, но и количество. Отбрасывай только совсем короткие, несвязанные или рекламные упоминания.
+    prompt = f"""[INST]Проанализируй новостной поток ниже. Твоя задача — найти МАКСИМАЛЬНОЕ количество независимых сюжетов, из которых можно сделать качественные журналистские статьи. Будь менее строгим: сюжет может быть основан даже на одной-двух очень содержательных новостях. Твоя цель — качество, но и количество. Отбрасывай только совсем короткие, несвязанные или рекламные упоминания.
 
 Для каждого найденного сюжета верни следующую информацию:
 1. `title`: Краткое рабочее название сюжета НА РУССКОМ ЯЗЫКЕ (например, "Трансферная сага Мбаппе", "Результаты матчей АПЛ", "Скандал в Итальянском футболе").
@@ -147,7 +180,7 @@ JSON:
         return []
 
 def write_article_for_storyline(storyline):
-    """Пишет статью по конкретному сюжету."""
+    # ... (эта функция без изменений)
     print(f"Этап 2: Написание статьи на тему '{storyline['title']}'...")
     prompt = f"""[INST]Ты — первоклассный спортивный журналист и редактор, пишущий для ведущего русскоязычного издания. Твоя задача — написать захватывающую статью для Яндекс.Дзен на основе предоставленных новостей.
 
@@ -156,15 +189,15 @@ def write_article_for_storyline(storyline):
 **САМОЕ ГЛАВНОЕ ПРАВИЛО: Статья должна быть написана ИСКЛЮЧИТЕЛЬНО НА РУССКОМ ЯЗЫКЕ.**
 
 **СТРОГИЕ ТРЕБОВАНИЯ К СТАТЬЕ:**
-1.  **НАЧИНАЙ СРАЗУ С ЗАГОЛОВКА.** Заголовок должен быть ярким, интригующим, но абсолютно правдивым, на РУССКОМ ЯЗЫКЕ. Он должен быть на первой строке. НЕ ИСПОЛЬЗУЙ markdown или слова "Заголовок:".
-2.  **ПИШИ КАК ЭКСПЕРТ.** Твой текст должен быть грамотным, аналитичным и увлекательным, чтобы удерживать внимание читателя до самого конца.
-3.  **СОЗДАЙ ЦЕЛЬНОЕ ПОВЕСТВОВАНИЕ** с логичным началом, развитием и завершением. Текст должен течь естественно, как статья в качественном издании.
+1.  **ЗАГОЛОВОК:** Твой ответ должен начинаться с яркого, интригующего, но абсолютно правдивого заголовка на РУССКОМ ЯЗЫКЕ. Заголовок должен быть на первой строке. НЕ ИСПОЛЬЗУЙ markdown или слова "Заголовок:".
+2.  **СТИЛЬ:** Пиши как эксперт. Текст должен быть грамотным, аналитичным и увлекательным, чтобы удерживать внимание читателя до самого конца.
+3.  **СТРУКТУРА:** Создай цельное повествование с логичным началом, развитием и завершением. Текст должен течь естественно, как статья в качественном издании.
 4.  **ЗАПРЕТЫ:**
     *   **НИКОГДА** не используй подзаголовки вроде "Введение", "Раскрытие деталей", "Заключение", "Вывод", "Примечание", "Содержание" и т.п.
     *   **НИКОГДА** не добавляй оговорки или дисклеймеры о том, что информация может быть неточной.
     *   **НИКОГДА** не начинай текст со слов "Статья:" или похожих маркеров.
 
-Твой ответ — это готовый журналистский продукт на безупречном РУССКОМ языке, который выглядит так, как будто его написал человек, а не ИИ.
+Твоя цель — создать готовый журналистский продукт на безупречном РУССКОМ языке, который выглядит так, как будто его написал человек, а не ИИ.
 [/INST]
 
 НОВОСТИ ДЛЯ АНАЛИЗА:
@@ -246,20 +279,14 @@ def update_rss_file(processed_storylines):
         article_text = storyline.get('article')
         if not article_text: continue
         parts = article_text.strip().split('\n', 1)
-        
-        # ⬇️⬇️⬇️ "ЗАЩИТА ОТ БРАКА": Пропускаем статью, если заголовок пустой ⬇️⬇️⬇️
         if len(parts) < 2 or not parts[0].strip():
             print("Пропускаем статью: сгенерирован ответ без заголовка или основного текста.")
             continue
-        
         title = parts[0].strip().replace("**", "").replace("Заголовок:", "").strip().replace('"', '')
         full_text = parts[1].strip()
-
-        # Еще одна проверка на случай, если заголовок стал пустым после очистки
         if not title:
             print("Пропускаем статью: заголовок пуст после очистки.")
             continue
-        
         item = ET.Element("item")
         ET.SubElement(item, "title").text = title
         ET.SubElement(item, "link").text = GITHUB_REPO_URL
@@ -299,15 +326,16 @@ def update_rss_file(processed_storylines):
 
 
 async def main():
-    # ... (эта функция без изменений)
     combined_text = await get_channel_posts()
     if not combined_text or len(combined_text) < 200:
         print("Новых постов для обработки недостаточно.")
         return
     if len(combined_text) > 30000:
         combined_text = combined_text[:30000]
+
     storylines = cluster_news_into_storylines(combined_text)
     if not storylines: return
+        
     processed_storylines = []
     for storyline in storylines:
         if len(storyline.get("news_texts", "")) < 150:
@@ -315,10 +343,20 @@ async def main():
             continue
         storyline_with_article = write_article_for_storyline(storyline)
         if not storyline_with_article: continue
+        
         final_storyline = find_real_photo_on_unsplash(storyline_with_article)
         if not final_storyline:
             final_storyline = generate_ai_image(storyline_with_article)
-        processed_storylines.append(final_storyline or storyline_with_article)
+        
+        # ⬇️⬇️⬇️ ВЫЗЫВАЕМ ФУНКЦИЮ ПУБЛИКАЦИИ В TELEGRAM ЗДЕСЬ ⬇️⬇️⬇️
+        if final_storyline:
+            post_to_telegram_channel(final_storyline)
+            processed_storylines.append(final_storyline)
+        elif storyline_with_article:
+            # Постим даже если картинки нет
+            post_to_telegram_channel(storyline_with_article)
+            processed_storylines.append(storyline_with_article)
+
     update_rss_file(processed_storylines)
 
 if __name__ == "__main__":
