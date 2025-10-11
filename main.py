@@ -34,6 +34,7 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHANNEL_USERNAME = os.environ.get("TELEGRAM_CHANNEL_USERNAME", "").strip()
 
 # ================== Модели AI и прочие настройки ==================
+# ⬇️⬇️⬇️ ВАШ ВЫБОР: СОВРЕМЕННАЯ И КАЧЕСТВЕННАЯ МОДЕЛЬ GEMMA 2 ⬇️⬇️⬇️
 TEXT_MODEL = "@cf/google/gemma-3-12b-it"
 IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell"
 
@@ -50,7 +51,7 @@ BANNED_PHRASES = [
 ]
 
 async def get_channel_posts():
-    """Собирает новости за последний час."""
+    # ... (эта функция без изменений)
     API_ID = os.environ.get("API_ID")
     API_HASH = os.environ.get("API_HASH")
     SESSION_STRING = os.environ.get("SESSION_STRING")
@@ -74,8 +75,8 @@ async def get_channel_posts():
     print(f"Найдено {len(all_posts)} уникальных постов.")
     return "\n\n---\n\n".join(p['text'] for p in all_posts)
 
-def _call_cloudflare_ai(model, payload, timeout=240): # ⬅️⬅️⬅️ ИЗМЕНЕНИЕ 1: Увеличен таймаут
-    """Универсальная функция для вызова API Cloudflare."""
+def _call_cloudflare_ai(model, payload, timeout=240): # Увеличенный таймаут
+    # ... (эта функция без изменений)
     if not CF_ACCOUNT_ID or not CF_API_TOKEN: return None
     api_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{model}"
     headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
@@ -89,7 +90,7 @@ def _call_cloudflare_ai(model, payload, timeout=240): # ⬅️⬅️⬅️ ИЗ�
         return None
 
 def clean_ai_artifacts(text):
-    """Программно удаляет распространенные 'артефакты' из текста ИИ."""
+    # ... (эта функция без изменений)
     lines = text.split('\n')
     cleaned_lines = []
     for line in lines:
@@ -102,12 +103,15 @@ def clean_ai_artifacts(text):
 def cluster_news_into_storylines(all_news_text):
     """Группирует новости в потенциальные сюжеты для статей."""
     print("Этап 1: Группировка новостей в сюжеты...")
+    
+    # ⬇️⬇️⬇️ НОВЫЙ ПРОМПТ ДЛЯ GEMMA С ТЕГАМИ <json_output> ⬇️⬇️⬇️
     prompt = f"""<start_of_turn>user
 Ты — главный редактор. Проанализируй новости и найди от 3 до 5 сюжетов.
 
 Для каждого сюжета верни JSON-объект с полями: `title` (название на русском), `category` (категория на русском), `search_queries` (массив из 2-3 запросов на английском для фото), `priority` ('high' или 'normal') и `news_texts` (полный текст новостей).
 
-Твой ответ ДОЛЖЕН БЫТЬ ТОЛЬКО в формате JSON-массива, заключенного в ```json ... ```. Никакого лишнего текста.
+Твой ответ ДОЛЖЕН содержать валидный JSON-массив, обернутый в теги <json_output> и </json_output>. Никакого лишнего текста вне этих тегов.
+Пример: <json_output>[{{"title": "...", ...}}]</json_output>
 
 НОВОСТИ:
 ---
@@ -119,37 +123,19 @@ def cluster_news_into_storylines(all_news_text):
     response = _call_cloudflare_ai(TEXT_MODEL, {"messages": [{"role": "user", "content": prompt}]})
     if not response: return []
     
-    # ⬇️⬇️⬇️ ИЗМЕНЕНИЕ 2: Супер-устойчивый парсер JSON ⬇️⬇️⬇️
+    # ⬇️⬇️⬇️ НОВЫЙ ПАРСЕР, ИЩУЩИЙ ТЕГИ <json_output> ⬇️⬇️⬇️
     try:
         raw_response = response.json()["result"]["response"]
-        
-        json_string = None
-        # Ищем основной блок JSON
-        match = re.search(r'```json(.*?)```', raw_response, re.DOTALL)
-        if not match:
-            match = re.search(r'(\[.*\])', raw_response, re.DOTALL)
-
+        match = re.search(r'<json_output>(.*?)</json_output>', raw_response, re.DOTALL)
         if match:
-            json_string = match.group(1).strip() if len(match.groups()) > 0 else match.group(0).strip()
+            json_string = match.group(1).strip()
+            storylines = json.loads(json_string)
+            print(f"Найдено {len(storylines)} сюжетов для статей.")
+            return storylines
         else:
-            print("Не удалось найти JSON-блок в ответе модели.")
+            print("Не удалось найти блок <json_output>...</json_output> в ответе модели.")
             print("Сырой ответ от модели:", raw_response)
             return []
-
-        # Попытка "вылечить" недописанный JSON
-        # Если строка не заканчивается на ']', но содержит '}', пытаемся закрыть массив
-        if not json_string.endswith(']') and '}' in json_string:
-            last_brace_index = json_string.rfind('}')
-            # Убедимся, что после последней скобки нет запятой
-            if last_brace_index + 1 < len(json_string) and json_string[last_brace_index + 1].strip() == ',':
-                 json_string = json_string[:last_brace_index + 1] + ']'
-            elif last_brace_index + 1 == len(json_string):
-                 json_string = json_string + ']'
-
-        storylines = json.loads(json_string)
-        print(f"Найдено {len(storylines)} сюжетов для статей.")
-        return storylines
-
     except (json.JSONDecodeError, KeyError) as e:
         print(f"Ошибка декодирования JSON ответа модели: {e}")
         if 'raw_response' in locals():
@@ -157,7 +143,7 @@ def cluster_news_into_storylines(all_news_text):
         return []
 
 def write_article_for_storyline(storyline):
-    """Пишет статью по конкретному сюжету."""
+    # ... (эта функция без изменений, промпт для Gemma остается тем же)
     print(f"Этап 2: Написание статьи на тему '{storyline['title']}'...")
     prompt = f"""<start_of_turn>user
 Ты — первоклассный спортивный журналист. Напиши захватывающую, фактически точную и объемную статью на РУССКОМ ЯЗЫКЕ на основе новостей ниже.
@@ -184,7 +170,7 @@ def write_article_for_storyline(storyline):
     return None
 
 def find_real_photo_on_google(storyline):
-    """Ищет реальное фото с лицензией на использование через Google Search API."""
+    # ... (эта функция без изменений)
     if not GOOGLE_API_KEY or not GOOGLE_CSE_ID: return None
     queries = storyline.get("search_queries", [])
     if not queries: return None
@@ -223,7 +209,7 @@ def find_real_photo_on_google(storyline):
     return None
 
 def generate_ai_image(storyline):
-    """Генерирует AI изображение как запасной вариант."""
+    # ... (эта функция без изменений)
     title = storyline['article'].split('\n', 1)[0]
     print(f"Этап 3 (Запасной): Генерация AI изображения для статьи '{title}'...")
     prompt = f"dramatic, ultra-realistic, 4k photo of: {title}. Professional sports photography, cinematic lighting"
@@ -241,7 +227,7 @@ def generate_ai_image(storyline):
     return storyline
 
 def update_rss_file(processed_storylines):
-    """Обновляет RSS-файл, добавляя новые статьи и удаляя старые."""
+    # ... (эта функция без изменений)
     ET.register_namespace('yandex', 'http://news.yandex.ru')
     ET.register_namespace('media', 'http://search.yahoo.com/mrss/')
     try:
@@ -314,7 +300,7 @@ def update_rss_file(processed_storylines):
     print(f"✅ RSS-лента успешно обновлена. Теперь в ней {len(channel.findall('item'))} статей.")
 
 def run_telegram_poster(storylines_json):
-    """Читает JSON и отправляет посты в Telegram."""
+    # ... (эта функция без изменений)
     print("Запуск публикации в Telegram...")
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHANNEL_USERNAME: return
     try:
@@ -358,7 +344,7 @@ def run_telegram_poster(storylines_json):
             if e.response is not None: print(f"Ответ сервера Telegram: {e.response.text}")
 
 async def run_rss_generator():
-    """Основная логика генерации RSS и изображений."""
+    # ... (эта функция без изменений)
     combined_text = await get_channel_posts()
     if not combined_text or len(combined_text) < 100:
         print("Новых постов для обработки недостаточно.")
@@ -407,6 +393,4 @@ if __name__ == "__main__":
             if storylines_json_env:
                 run_telegram_poster(storylines_json_env)
     else:
-        # Для локального тестирования
-        print("Режим не указан. Запуск в режиме генерации RSS для теста.")
-        asyncio.run(run_rss_generator())
+        print("Режим работы не указан. Запустите с --mode generate_rss или --mode post_to_telegram.")
