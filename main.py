@@ -34,7 +34,6 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHANNEL_USERNAME = os.environ.get("TELEGRAM_CHANNEL_USERNAME", "").strip()
 
 # ================== Модели AI и прочие настройки ==================
-# ⬇️⬇️⬇️ МЕНЯЕМ МОДЕЛЬ НА GPT-OSS ⬇️⬇️⬇️
 TEXT_MODEL = "@cf/openai/gpt-oss-120b"
 IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell"
 
@@ -78,10 +77,25 @@ async def get_channel_posts():
 def _call_cloudflare_ai(model, payload, timeout=240):
     """Универсальная функция для вызова API Cloudflare."""
     if not CF_ACCOUNT_ID or not CF_API_TOKEN: return None
+    
     api_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{model}"
     headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
+
+    # ⬇️⬇️⬇️ НОВАЯ ЛОГИКА: Адаптируем payload под модель ⬇️⬇️⬇️
+    final_payload = {}
+    if "gpt-oss" in model:
+        # Модели GPT-OSS ожидают простой "prompt"
+        # Мы берем контент из первого сообщения, т.к. у нас он один
+        if "messages" in payload and payload["messages"]:
+            final_payload["prompt"] = payload["messages"][0]["content"]
+        elif "prompt" in payload:
+             final_payload["prompt"] = payload["prompt"]
+    else:
+        # Llama, Gemma и другие предпочитают "messages"
+        final_payload = payload
+        
     try:
-        response = requests.post(api_url, headers=headers, json=payload, timeout=timeout)
+        response = requests.post(api_url, headers=headers, json=final_payload, timeout=timeout)
         response.raise_for_status()
         return response
     except requests.exceptions.RequestException as e:
@@ -103,21 +117,24 @@ def clean_ai_artifacts(text):
 def cluster_news_into_storylines(all_news_text):
     """Группирует новости в потенциальные сюжеты для статей."""
     print("Этап 1: Группировка новостей в сюжеты...")
-    prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
-Ты — главный редактор. Проанализируй новости и найди от 3 до 5 сюжетов.
+    
+    # ⬇️⬇️⬇️ УНИВЕРСАЛЬНЫЙ ПРОМПТ ДЛЯ ВСЕХ МОДЕЛЕЙ ⬇️⬇️⬇️
+    prompt = f"""Ты — главный редактор. Проанализируй новости и найди от 3 до 5 сюжетов.
 
 Для каждого сюжета верни JSON-объект с полями: `title` (название на русском), `category` (категория на русском), `search_queries` (массив из 2-3 запросов на английском для фото), `priority` ('high' или 'normal') и `news_texts` (полный текст новостей).
 
 Твой ответ ДОЛЖЕН содержать валидный JSON-массив, обернутый в теги <json> и </json>. Никакого лишнего текста вне этих тегов.
-Пример: <json>[{{"title": "...", ...}}]</json><|eot_id|><|start_header_id|>user<|end_header_id|>
+Пример: <json>[{{"title": "...", ...}}]</json>
+
 НОВОСТИ:
 ---
 {all_news_text}
 ---
-ОТВЕТ:<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+ОТВЕТ:
 """
     response = _call_cloudflare_ai(TEXT_MODEL, {"messages": [{"role": "system", "content": prompt}]})
     if not response: return []
+    
     try:
         raw_response = response.json()["result"]["response"]
         match = re.search(r'<json>(.*?)</json>', raw_response, re.DOTALL)
@@ -143,21 +160,21 @@ def cluster_news_into_storylines(all_news_text):
 def write_article_for_storyline(storyline):
     """Пишет статью по конкретному сюжету."""
     print(f"Этап 2: Написание статьи на тему '{storyline['title']}'...")
-    prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
-Ты — первоклассный спортивный журналист, пишущий для ведущего русскоязычного издания. Твоя задача — написать захватывающую, фактически точную и объемную статью на основе предоставленных новостей.
+    
+    # ⬇️⬇️⬇️ УНИВЕРСАЛЬНЫЙ ПРОМПТ ДЛЯ ВСЕХ МОДЕЛЕЙ ⬇️⬇️⬇️
+    prompt = f"""Ты — первоклассный спортивный журналист. Напиши захватывающую, фактически точную и объемную статью на РУССКОМ ЯЗЫКЕ на основе новостей ниже.
 
-**САМОЕ ГЛАВНОЕ ПРАВИЛО: Статья должна быть написана ИСКЛЮЧИТЕЛЬНО НА РУССКОМ ЯЗЫКЕ и строго на основе предоставленных фактов.**
+ТРЕБОВАНИЯ:
+1.  Начинай сразу с заголовка. Заголовок должен быть ярким, интригующим, но правдивым.
+2.  Никаких выдумок. Не добавляй факты, которых нет в исходных новостях.
+3.  Пиши как эксперт: глубокий анализ, увлекательный стиль, цельное повествование.
+4.  ЗАПРЕТЫ: НИКОГДА не используй подзаголовки ("Введение", "Заключение"), дисклеймеры или маркеры ("Статья:").
 
-**ТРЕБОВАНИЯ:**
-1.  **Начинай сразу с заголовка.** Заголовок должен быть ярким, интригующим, но правдивым.
-2.  **Никаких выдумок.** Не добавляй факты, имена или даты, которых нет в исходных новостях.
-3.  **Пиши как эксперт:** глубокий анализ, увлекательный стиль, цельное повествование.
-4.  **ЗАПРЕТЫ:** НИКОГДА не используй подзаголовки ("Введение", "Заключение"), дисклеймеры или маркеры ("Статья:").<|eot_id|><|start_header_id|>user<|end_header_id|>
 НОВОСТИ ДЛЯ АНАЛИЗА:
 ---
 {storyline['news_texts']}
 ---
-ГОТОВАЯ СТАТЬЯ:<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+ГОТОВАЯ СТАТЬЯ:
 """
     response = _call_cloudflare_ai(TEXT_MODEL, {"messages": [{"role": "system", "content": prompt}], "max_tokens": 1500})
     if response:
@@ -168,10 +185,11 @@ def write_article_for_storyline(storyline):
     return None
 
 def find_real_photo_on_google(storyline):
-    # ... (эта функция без изменений)
+    """Ищет реальное фото с лицензией на использование через Google Search API."""
     if not GOOGLE_API_KEY or not GOOGLE_CSE_ID: return None
     queries = storyline.get("search_queries", [])
     if not queries: return None
+
     for query in queries:
         print(f"Этап 3 (Основной): Поиск легального фото в Google по запросу: '{query}'...")
         url = "https://www.googleapis.com/customsearch/v1"
@@ -201,7 +219,7 @@ def find_real_photo_on_google(storyline):
     return None
 
 def generate_ai_image(storyline):
-    # ... (эта функция без изменений)
+    """Генерирует AI изображение как запасной вариант."""
     title = storyline['article'].split('\n', 1)[0]
     print(f"Этап 3 (Запасной): Генерация AI изображения для статьи '{title}'...")
     prompt = f"dramatic, ultra-realistic, 4k photo of: {title}. Professional sports photography, cinematic lighting"
