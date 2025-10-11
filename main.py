@@ -34,7 +34,6 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHANNEL_USERNAME = os.environ.get("TELEGRAM_CHANNEL_USERNAME", "").strip()
 
 # ================== Модели AI и прочие настройки ==================
-# ⬇️⬇️⬇️ ВАШ ВЫБОР: СОВРЕМЕННЫЕ И КАЧЕСТВЕННЫЕ МОДЕЛИ ⬇️⬇️⬇️
 TEXT_MODEL = "@cf/google/gemma-2-9b-it"
 IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell"
 
@@ -103,8 +102,6 @@ def clean_ai_artifacts(text):
 def cluster_news_into_storylines(all_news_text):
     """Группирует новости в потенциальные сюжеты для статей."""
     print("Этап 1: Группировка новостей в сюжеты...")
-    
-    # ⬇️⬇️⬇️ ПРОМПТ, АДАПТИРОВАННЫЙ ДЛЯ GEMMA ⬇️⬇️⬇️
     prompt = f"""<start_of_turn>user
 Ты — главный редактор. Проанализируй новости и найди от 3 до 5 сюжетов.
 
@@ -121,11 +118,8 @@ def cluster_news_into_storylines(all_news_text):
 """
     response = _call_cloudflare_ai(TEXT_MODEL, {"messages": [{"role": "user", "content": prompt}]})
     if not response: return []
-    
     try:
         raw_response = response.json()["result"]["response"]
-        
-        # Улучшенный парсер, который ищет сначала ```json, потом просто массив
         match = re.search(r'```json(.*?)```', raw_response, re.DOTALL)
         if not match:
             match = re.search(r'(\[.*\])', raw_response, re.DOTALL)
@@ -148,8 +142,6 @@ def cluster_news_into_storylines(all_news_text):
 def write_article_for_storyline(storyline):
     """Пишет статью по конкретному сюжету."""
     print(f"Этап 2: Написание статьи на тему '{storyline['title']}'...")
-
-    # ⬇️⬇️⬇️ ПРОМПТ, АДАПТИРОВАННЫЙ ДЛЯ GEMMA ⬇️⬇️⬇️
     prompt = f"""<start_of_turn>user
 Ты — первоклассный спортивный журналист. Напиши захватывающую, фактически точную и объемную статью на РУССКОМ ЯЗЫКЕ на основе новостей ниже.
 
@@ -193,7 +185,7 @@ def find_real_photo_on_google(storyline):
             response.raise_for_status()
             data = response.json()
             if "items" in data and data["items"]:
-                image_url = data["items"]["link"]
+                image_url = data["items"][0]["link"]
                 if not image_url.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
                     print(f"Найден неподходящий формат изображения: {image_url}. Пробуем следующий запрос.")
                     continue
@@ -215,7 +207,7 @@ def find_real_photo_on_google(storyline):
 
 def generate_ai_image(storyline):
     """Генерирует AI изображение как запасной вариант."""
-    title = storyline['article'].split('\n', 1)
+    title = storyline['article'].split('\n', 1)[0]
     print(f"Этап 3 (Запасной): Генерация AI изображения для статьи '{title}'...")
     prompt = f"dramatic, ultra-realistic, 4k photo of: {title}. Professional sports photography, cinematic lighting"
     
@@ -232,7 +224,7 @@ def generate_ai_image(storyline):
     return storyline
 
 def update_rss_file(processed_storylines):
-    # ... (эта функция без изменений)
+    """Обновляет RSS-файл, добавляя новые статьи и удаляя старые."""
     ET.register_namespace('yandex', 'http://news.yandex.ru')
     ET.register_namespace('media', 'http://search.yahoo.com/mrss/')
     try:
@@ -245,9 +237,11 @@ def update_rss_file(processed_storylines):
         ET.SubElement(channel, "title").text = "НА БАНКЕ"
         ET.SubElement(channel, "link").text = GITHUB_REPO_URL
         ET.SubElement(channel, "description").text = "«НА БАНКЕ». Все главные футбольные новости и слухи в одном месте. Трансферы, инсайды и честное мнение. Говорим о футболе так, как будто сидим с тобой на скамейке запасных."
+    
     for storyline in reversed(processed_storylines):
         article_text = storyline.get('article')
         if not article_text: continue
+        
         lines = article_text.strip().split('\n')
         title, start_of_body_index = "", 0
         for i, line in enumerate(lines):
@@ -255,13 +249,16 @@ def update_rss_file(processed_storylines):
                 title = line.strip().replace("**", "").replace('"', '')
                 start_of_body_index = i + 1
                 break
+        
         if not title:
             print("Пропускаем статью: не удалось извлечь заголовок.")
             continue
+            
         full_text = '\n'.join(lines[start_of_body_index:]).strip()
         if not full_text:
             print(f"Пропускаем статью '{title}': отсутствует основной текст после заголовка.")
             continue
+
         item = ET.Element("item")
         ET.SubElement(item, "title").text = title
         ET.SubElement(item, "link").text = GITHUB_REPO_URL
@@ -276,6 +273,7 @@ def update_rss_file(processed_storylines):
         ET.SubElement(item, "pubDate").text = datetime.datetime.now(datetime.timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
         ET.SubElement(item, "guid", isPermaLink="false").text = str(hash(title))
         channel.insert(3, item)
+
     items = channel.findall('item')
     if len(items) > MAX_RSS_ITEMS:
         print(f"В RSS стало {len(items)} статей. Удаляем старые...")
@@ -291,6 +289,7 @@ def update_rss_file(processed_storylines):
                 except Exception as e:
                     print(f"Не удалось удалить изображение {image_filename}: {e}")
             channel.remove(old_item)
+
     xml_string = ET.tostring(root, 'utf-8')
     pretty_xml = minidom.parseString(xml_string).toprettyxml(indent="  ")
     with open(RSS_FILE_PATH, "w", encoding="utf-8") as f:
@@ -298,15 +297,17 @@ def update_rss_file(processed_storylines):
     print(f"✅ RSS-лента успешно обновлена. Теперь в ней {len(channel.findall('item'))} статей.")
 
 def run_telegram_poster(storylines_json):
-    # ... (эта функция без изменений)
+    """Читает JSON и отправляет посты в Telegram."""
     print("Запуск публикации в Telegram...")
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHANNEL_USERNAME: return
     try:
         storylines = json.loads(storylines_json)
     except json.JSONDecodeError: return
+
     for storyline in storylines:
         article_text = storyline.get('article')
         if not article_text: continue
+        
         lines = article_text.strip().split('\n')
         title, start_of_body_index = "", 0
         for i, line in enumerate(lines):
@@ -314,8 +315,10 @@ def run_telegram_poster(storylines_json):
                 title = line.strip().replace("**", "").replace('"', '')
                 start_of_body_index = i + 1
                 break
+        
         if not title: continue
         full_text = '\n'.join(lines[start_of_body_index:]).strip()
+
         if not storyline.get('image_url'):
             print(f"Для статьи '{title}' не найдено изображение. Отправка только текста.")
             url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -328,6 +331,7 @@ def run_telegram_poster(storylines_json):
             if len(caption) > 1024: caption = caption[:1021] + "..."
             url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
             payload = { 'chat_id': f"@{TELEGRAM_CHANNEL_USERNAME}", 'photo': image_url, 'caption': caption, 'parse_mode': 'HTML' }
+            
         try:
             response = requests.post(url, json=payload, timeout=60)
             response.raise_for_status()
@@ -362,7 +366,6 @@ async def run_rss_generator():
         if storyline.get('priority') == 'high' and GOOGLE_API_KEY:
             final_storyline = find_real_photo_on_google(storyline_with_article)
         
-        # Если реальное фото не найдено, используем FLUX
         if not final_storyline:
             final_storyline = generate_ai_image(storyline_with_article)
             
@@ -374,9 +377,10 @@ async def run_rss_generator():
         with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
             f.write(f'processed_storylines_json={storylines_json}\n')
 
+# ⬇️⬇️⬇️ ИСПРАВЛЕНИЕ ЗДЕСЬ ⬇️⬇️⬇️
 if __name__ == "__main__":
-    if len(sys.argv) > 2 and sys.argv == '--mode':
-        mode = sys.argv
+    if len(sys.argv) > 2 and sys.argv[1] == '--mode':
+        mode = sys.argv[2]
         if mode == 'generate_rss':
             if not all(os.environ.get(key) for key in ["API_ID", "API_HASH", "SESSION_STRING"]):
                 print("Пропускаем генерацию RSS: не все секреты Telegram для парсинга доступны.")
@@ -387,6 +391,5 @@ if __name__ == "__main__":
             if storylines_json_env:
                 run_telegram_poster(storylines_json_env)
     else:
-        # Для локального тестирования
-        print("Режим не указан. Запуск в режиме генерации RSS для теста.")
-        asyncio.run(run_rss_generator())
+        # Это сообщение будет видно только при локальном запуске без аргументов
+        print("Режим работы не указан. Запустите с --mode generate_rss или --mode post_to_telegram.")
