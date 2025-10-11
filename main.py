@@ -90,8 +90,6 @@ def _call_cloudflare_ai(model, payload, timeout=180):
 def cluster_news_into_storylines(all_news_text):
     """Группирует новости в потенциальные сюжеты для статей."""
     print("Этап 1: Группировка новостей в сюжеты...")
-    
-    # ⬇️⬇️⬇️ ОБНОВЛЕННЫЙ ПРОМПТ 1 ⬇️⬇️⬇️
     prompt = f"""[INST]Проанализируй новостной поток ниже. Твоя задача — найти МАКСИМАЛЬНОЕ количество независимых сюжетов, из которых можно сделать качественные журналистские статьи. Сюжет может быть основан даже на одной-двух очень содержательных новостях. Игнорируй только совсем короткие, несвязанные или рекламные упоминания.
 
 Для каждого найденного сюжета верни следующую информацию:
@@ -126,8 +124,6 @@ JSON:
 def write_article_for_storyline(storyline):
     """Пишет статью по конкретному сюжету."""
     print(f"Этап 2: Написание статьи на тему '{storyline['title']}'...")
-    
-    # ⬇️⬇️⬇️ ОБНОВЛЕННЫЙ ПРОМПТ 2 ⬇️⬇️⬇️
     prompt = f"""[INST]Ты — первоклассный спортивный журналист и редактор, пишущий для ведущего русскоязычного издания. Твоя задача — написать захватывающую статью для Яндекс.Дзен на основе предоставленных новостей.
 
 **Рабочее название сюжета:** "{storyline['title']}"
@@ -210,7 +206,7 @@ def generate_ai_image(storyline):
     return storyline
 
 def update_rss_file(processed_storylines):
-    """Обновляет RSS-файл, добавляя новые статьи и изображения."""
+    """Обновляет RSS-файл, добавляя новые статьи и удаляя старые статьи и изображения."""
     ET.register_namespace('yandex', 'http://news.yandex.ru')
     ET.register_namespace('media', 'http://search.yahoo.com/mrss/')
     try:
@@ -250,7 +246,21 @@ def update_rss_file(processed_storylines):
 
     items = channel.findall('item')
     if len(items) > MAX_RSS_ITEMS:
+        print(f"В RSS стало {len(items)} статей. Удаляем старые...")
+        # ⬇️⬇️⬇️ НОВАЯ ЛОГИКА: Удаление старых изображений ⬇️⬇️⬇️
         for old_item in items[MAX_RSS_ITEMS:]:
+            enclosure = old_item.find('enclosure')
+            if enclosure is not None:
+                image_url = enclosure.get('url')
+                if image_url:
+                    try:
+                        image_filename = os.path.basename(image_url)
+                        image_path = os.path.join(IMAGE_DIR, image_filename)
+                        if os.path.exists(image_path):
+                            os.remove(image_path)
+                            print(f"Удаляем старое изображение: {image_filename}")
+                    except Exception as e:
+                        print(f"Не удалось удалить изображение {image_filename}: {e}")
             channel.remove(old_item)
 
     xml_string = ET.tostring(root, 'utf-8')
@@ -286,4 +296,4 @@ async def main():
     update_rss_file(processed_storylines)
 
 if __name__ == "__main__":
-    asyncio.run(main())```
+    asyncio.run(main())
