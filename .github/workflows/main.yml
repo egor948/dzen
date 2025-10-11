@@ -24,30 +24,43 @@ jobs:
       - name: 3. Install dependencies
         run: pip install -r requirements.txt
 
-      - name: 4. Run the main script
+      # ⬇️⬇️⬇️ ШАГ 4 РАЗБИТ НА ДВА: ГЕНЕРАЦИЯ И ПУБЛИКАЦИЯ ⬇️⬇️⬇️
+      - name: 4. Generate RSS and Images
+        id: generate
         env:
-          # Секреты для Telegram (парсер)
+          # Все секреты передаются сюда
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
           SESSION_STRING: ${{ secrets.SESSION_STRING }}
-          
-          # Секреты для Cloudflare AI
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-          
-          # Секрет для Unsplash
           UNSPLASH_ACCESS_KEY: ${{ secrets.UNSPLASH_ACCESS_KEY }}
-          
-          # ⬇️⬇️⬇️ НОВЫЕ СЕКРЕТЫ ДЛЯ TELEGRAM-ПОСТИНГА ⬇️⬇️⬇️
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHANNEL_USERNAME: ${{ secrets.TELEGRAM_CHANNEL_USERNAME }}
-          
-        run: python main.py
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python main.py --mode generate_rss
 
-      - name: 5. Commit and push if there are changes
+      - name: 5. Commit and Push to GitHub
         run: |
           git config user.name "GitHub Actions Bot"
           git config user.email "actions@github.com"
           git add .
-          git diff --staged --quiet || git commit -m "🗞️ Auto-update RSS feed"
+          # Если изменений нет, выходим из шага
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "No changes to commit. Skipping push and telegram steps."
+            exit 0
+          fi
+          git commit -m "🗞️ Auto-update RSS feed"
           git push
+      
+      - name: 6. Wait for GitHub Pages to Deploy
+        run: |
+          echo "Waiting for 15 seconds to allow files to become available via raw URL..."
+          sleep 15
+
+      - name: 7. Post to Telegram
+        env:
+          # Передаем только нужные секреты для безопасности
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_USERNAME: ${{ secrets.TELEGRAM_CHANNEL_USERNAME }}
+          # Передаем JSON с данными из шага генерации
+          PROCESSED_STORYLINES_JSON: ${{ steps.generate.outputs.processed_storylines_json }}
+        run: python main.py --mode post_to_telegram``
