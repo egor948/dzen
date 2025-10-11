@@ -34,8 +34,8 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHANNEL_USERNAME = os.environ.get("TELEGRAM_CHANNEL_USERNAME", "").strip()
 
 # ================== Модели AI и прочие настройки ==================
-# ⬇️⬇️⬇️ МЕНЯЕМ МОДЕЛЬ НА CODE LLAMA ДЛЯ СТАБИЛЬНОГО JSON ⬇️⬇️⬇️
-TEXT_MODEL = "@cf/thebloke/codellama-7b-instruct-awq"
+# ⬇️⬇️⬇️ МЕНЯЕМ МОДЕЛЬ НА GEMMA ⬇️⬇️⬇️
+TEXT_MODEL = "@cf/google/gemma-7b-it"
 RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
 IMAGE_DIR = os.path.join(os.getcwd(), "images")
 MAX_RSS_ITEMS = 30
@@ -101,73 +101,72 @@ def clean_ai_artifacts(text):
 def cluster_news_into_storylines(all_news_text):
     """Группирует новости в потенциальные сюжеты для статей."""
     print("Этап 1: Группировка новостей в сюжеты...")
-    prompt = f"""[INST]Твоя задача — выступить в роли главного редактора. Проанализируй весь новостной поток ниже и найди от 3 до 5 самых интересных и независимых сюжетов для статей. Будь смелее в выборе: сюжет может быть основан даже на одной очень содержательной новости. Твоя цель — найти как можно больше качественного материала. Отбрасывай только совсем короткие, несвязанные или рекламные упоминания.
+    
+    # ⬇️⬇️⬇️ ПРОМПТ, АДАПТИРОВАННЫЙ ДЛЯ GEMMA ⬇️⬇️⬇️
+    prompt = f"""<start_of_turn>user
+Ты — главный редактор. Проанализируй новости и найди от 3 до 5 сюжетов.
 
-Для каждого найденного сюжета верни следующую информацию:
-1. `title`: Краткое рабочее название сюжета НА РУССКОМ ЯЗЫКЕ.
-2. `category`: Одно-два слова, категория для RSS НА РУССКОМ ЯЗЫКЕ.
-3. `search_queries`: JSON-массив из 2-3 prioritized поисковых запросов на АНГЛИЙСКОМ для поиска фото. Первым должен быть самый конкретный запрос (игрок + клуб), последним — самый общий (стадион, эмблема клуба).
-4. `priority`: Приоритет сюжета. Если новость очень важная (топ-клуб, известный игрок, скандал), ставь 'high'. В остальных случаях — 'normal'.
-5. `news_texts`: ПОЛНЫЙ и НЕИЗМЕНЕННЫЙ текст всех новостей по этому сюжету.
+Для каждого сюжета верни JSON-объект с полями: `title` (название на русском), `category` (категория на русском), `search_queries` (массив из 2-3 запросов на английском для фото), `priority` ('high' или 'normal') и `news_texts` (полный текст новостей).
 
-Твой ответ ДОЛЖЕН БЫТЬ ТОЛЬКО в формате JSON-массива. Никакого лишнего текста.
-[/INST]
+Твой ответ ДОЛЖЕН БЫТЬ ТОЛЬКО в формате JSON-массива, заключенного в ```json ... ```. Никакого лишнего текста.
 
 НОВОСТИ:
 ---
 {all_news_text}
 ---
-JSON:
+<end_of_turn>
+<start_of_turn>model
 """
-    response = _call_cloudflare_ai(TEXT_MODEL, {"prompt": prompt, "max_tokens": 2048})
+    response = _call_cloudflare_ai(TEXT_MODEL, {"messages": [{"role": "user", "content": prompt}]})
     if not response: return []
     
+    # ⬇️⬇️⬇️ УСТОЙЧИВЫЙ ПАРСЕР JSON (теперь ищет ```json) ⬇️⬇️⬇️
     try:
         raw_response = response.json()["result"]["response"]
-        storylines = []
-        # Ищем все вхождения JSON-объектов, начинающихся с { и заканчивающихся на }
-        for match in re.finditer(r'\{.*?\}', raw_response, re.DOTALL):
-            try:
-                storyline = json.loads(match.group(0))
-                if 'title' in storyline and 'news_texts' in storyline:
-                    storylines.append(storyline)
-            except json.JSONDecodeError:
-                continue
         
-        if storylines:
+        # Ищем содержимое между ```json и ```
+        match = re.search(r'```json(.*?)```', raw_response, re.DOTALL)
+        if not match:
+            # Если не нашли, пробуем найти просто массив
+            match = re.search(r'\[.*\]', raw_response, re.DOTALL)
+
+        if match:
+            json_string = match.group(1).strip() if len(match.groups()) > 0 else match.group(0).strip()
+            storylines = json.loads(json_string)
             print(f"Найдено {len(storylines)} сюжетов для статей.")
             return storylines
         else:
-            print("Не удалось извлечь ни одного валидного JSON-объекта из ответа модели.")
+            print("Не удалось найти JSON-блок в ответе модели.")
             print("Сырой ответ от модели:", raw_response)
             return []
-    except KeyError as e:
-        print(f"Ошибка в структуре ответа от Cloudflare: {e}")
+    except (json.JSONDecodeError, KeyError) as e:
+        print(f"Ошибка декодирования JSON ответа модели: {e}")
+        if 'raw_response' in locals():
+            print("Сырой ответ от модели:", raw_response)
         return []
 
 def write_article_for_storyline(storyline):
     """Пишет статью по конкретному сюжету."""
     print(f"Этап 2: Написание статьи на тему '{storyline['title']}'...")
-    prompt = f"""[INST]Ты — первоклассный спортивный журналист, известный своим глубоким анализом и увлекательным стилем изложения. Твоя задача — написать объемную, "плотную" и захватывающую статью для Яндекс.Дзен на основе предоставленных новостей.
-
-**Рабочее название сюжета:** "{storyline['title']}"
-
-**САМОЕ ГЛАВНОЕ ПРАВИЛО: Статья должна быть написана ИСКЛЮЧИТЕЛЬНО НА РУССКОМ ЯЗЫКЕ и строго на основе предоставленных фактов.**
+    
+    # ⬇️⬇️⬇️ ПРОМПТ, АДАПТИРОВАННЫЙ ДЛЯ GEMMA ⬇️⬇️⬇️
+    prompt = f"""<start_of_turn>user
+Ты — первоклассный спортивный журналист. Напиши захватывающую, фактически точную и объемную статью на РУССКОМ ЯЗЫКЕ на основе новостей ниже.
 
 **ТРЕБОВАНИЯ:**
 1.  **Начинай сразу с заголовка.** Заголовок должен быть ярким, интригующим, но правдивым.
-2.  **Никаких выдумок.** Не добавляй факты, имена или даты, которых нет в исходных новостях.
+2.  **Никаких выдумок.** Не добавляй факты, которых нет в исходных новостях.
 3.  **Пиши как эксперт:** глубокий анализ, увлекательный стиль, цельное повествование.
 4.  **ЗАПРЕТЫ:** НИКОГДА не используй подзаголовки ("Введение", "Заключение"), дисклеймеры или маркеры ("Статья:").
-[/INST]
 
 НОВОСТИ ДЛЯ АНАЛИЗА:
 ---
 {storyline['news_texts']}
 ---
-ГОТОВАЯ СТАТЬЯ:
+<end_of_turn>
+<start_of_turn>model
 """
-    response = _call_cloudflare_ai(TEXT_MODEL, {"prompt": prompt, "max_tokens": 1500})
+    response = _call_cloudflare_ai(TEXT_MODEL, {"messages": [{"role": "user", "content": prompt}], "max_tokens": 1500})
     if response:
         raw_article_text = response.json()["result"]["response"]
         cleaned_article_text = clean_ai_artifacts(raw_article_text)
@@ -176,7 +175,7 @@ def write_article_for_storyline(storyline):
     return None
 
 def find_real_photo_on_google(storyline):
-    """Ищет реальное фото с лицензией на использование через Google Search API."""
+    # ... (эта функция без изменений)
     if not GOOGLE_API_KEY or not GOOGLE_CSE_ID: return None
     queries = storyline.get("search_queries", [])
     if not queries: return None
@@ -194,7 +193,7 @@ def find_real_photo_on_google(storyline):
             response.raise_for_status()
             data = response.json()
             if "items" in data and data["items"]:
-                image_url = data["items"][0]["link"]
+                image_url = data["items"]["link"]
                 if not image_url.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
                     print(f"Найден неподходящий формат изображения: {image_url}. Пробуем следующий запрос.")
                     continue
@@ -351,8 +350,8 @@ async def run_rss_generator():
             f.write(f'processed_storylines_json={storylines_json}\n')
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == '--mode':
-        mode = sys.argv[2]
+    if len(sys.argv) > 1 and sys.argv == '--mode':
+        mode = sys.argv
         if mode == 'generate_rss':
             if not all(os.environ.get(key) for key in ["API_ID", "API_HASH", "SESSION_STRING"]):
                 print("Пропускаем генерацию RSS: не все секреты Telegram для парсинга доступны.")
