@@ -13,8 +13,7 @@ import re
 import sys
 
 # ================= НАСТРОЙКИ =================
-# Telegram-парсер инициализируется позже, по необходимости.
-
+# Telegram-парсер инициализируется по необходимости.
 CHANNELS_LIST = [
     "breakevens", "spurstg", "bluecityzens", "manutd_one", "lexusarsenal", "sixELCE", "astonvillago",
     "tg_barca", "ZZoneRM", "psgdot", "FcMilanItaly", "Vstakane", "LaligaOfficial_rus", "SportEPL", "tg_epl",
@@ -29,7 +28,8 @@ CHANNELS = sorted(list(set(CHANNELS_LIST)))
 # ================== API Ключи ==================
 CF_ACCOUNT_ID = os.environ.get("CF_ACCOUNT_ID", "").strip()
 CF_API_TOKEN = os.environ.get("CF_API_TOKEN", "").strip()
-UNSPLASH_ACCESS_KEY = os.environ.get("UNSPLASH_ACCESS_KEY", "").strip()
+GOOGLE_CSE_ID = os.environ.get("GOOGLE_CSE_ID", "").strip()
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "").strip()
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHANNEL_USERNAME = os.environ.get("TELEGRAM_CHANNEL_USERNAME", "").strip()
 
@@ -50,16 +50,12 @@ BANNED_PHRASES = [
 
 async def get_channel_posts():
     """Собирает новости за последний час."""
-    # ⬇️⬇️⬇️ ИЗМЕНЕНИЕ ЗДЕСЬ: Инициализация Telegram-клиента перенесена сюда ⬇️⬇️⬇️
     API_ID = os.environ.get("API_ID")
     API_HASH = os.environ.get("API_HASH")
     SESSION_STRING = os.environ.get("SESSION_STRING")
-
     if not API_ID or not API_HASH or not SESSION_STRING:
-        raise ValueError("Секреты Telegram для парсинга (API_ID, API_HASH, SESSION_STRING) не найдены!")
-
+        raise ValueError("Секреты Telegram для парсинга не найдены!")
     client = TelegramClient(StringSession(SESSION_STRING), int(API_ID), API_HASH)
-    
     all_posts, unique_texts = [], set()
     now = datetime.datetime.now(datetime.timezone.utc)
     cutoff = now - timedelta(hours=1)
@@ -79,9 +75,7 @@ async def get_channel_posts():
 
 def _call_cloudflare_ai(model, payload, timeout=180):
     """Универсальная функция для вызова API Cloudflare."""
-    if not CF_ACCOUNT_ID or not CF_API_TOKEN:
-        print("Секреты Cloudflare (CF_ACCOUNT_ID, CF_API_TOKEN) не найдены. Пропускаем вызов AI.")
-        return None
+    if not CF_ACCOUNT_ID or not CF_API_TOKEN: return None
     api_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{model}"
     headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
     try:
@@ -90,8 +84,7 @@ def _call_cloudflare_ai(model, payload, timeout=180):
         return response
     except requests.exceptions.RequestException as e:
         print(f"Ошибка HTTP-запроса к Cloudflare API: {e}")
-        if e.response is not None:
-            print(f"Ответ сервера ({e.response.status_code}): {e.response.text}")
+        if e.response is not None: print(f"Ответ сервера ({e.response.status_code}): {e.response.text}")
         return None
 
 def clean_ai_artifacts(text):
@@ -111,10 +104,11 @@ def cluster_news_into_storylines(all_news_text):
     prompt = f"""[INST]Твоя задача — выступить в роли главного редактора. Проанализируй весь новостной поток ниже и найди от 3 до 5 самых интересных и независимых сюжетов для статей. Будь смелее в выборе: сюжет может быть основан даже на одной очень содержательной новости. Твоя цель — найти как можно больше качественного материала. Отбрасывай только совсем короткие, несвязанные или рекламные упоминания.
 
 Для каждого найденного сюжета верни следующую информацию:
-1. `title`: Краткое рабочее название сюжета НА РУССКОМ ЯЗЫКЕ (например, "Трансферная сага Мбаппе", "Результаты матчей АПЛ", "Скандал в Итальянском футболе").
-2. `category`: Одно-два слова, категория для RSS НА РУССКОМ ЯЗЫКЕ (например, "Трансферы", "АПЛ", "Серия А", "Скандалы").
-3. `search_query`: Ключевые слова на АНГЛИЙСКОМ для поиска релевантной фотографии (например, "Kylian Mbappe PSG football", "Premier League match action", "Italian football referee scandal").
-4. `news_texts`: ПОЛНЫЙ и НЕИЗМЕНЕННЫЙ текст всех новостей, относящихся к этому сюжету.
+1. `title`: Краткое рабочее название сюжета НА РУССКОМ ЯЗЫКЕ.
+2. `category`: Одно-два слова, категория для RSS НА РУССКОМ ЯЗЫКЕ.
+3. `search_query`: Ключевые слова на АНГЛИЙСКОМ для поиска релевантной фотографии.
+4. `priority`: Приоритет сюжета. Если новость очень важная (топ-клуб, известный игрок, скандал), ставь 'high'. В остальных случаях — 'normal'.
+5. `news_texts`: ПОЛНЫЙ и НЕИЗМЕНЕННЫЙ текст всех новостей, относящихся к этому сюжету.
 
 Твой ответ ДОЛЖЕН БЫТЬ ТОЛЬКО в формате JSON-массива.
 [/INST]
@@ -151,14 +145,11 @@ def write_article_for_storyline(storyline):
 **СТРОГИЕ ТРЕБОВАНИЯ К СТАТЬЕ:**
 1.  **НАЧИНАЙ СРАЗУ С ЗАГОЛОВКА.** Заголовок должен быть ярким, интригующим, но абсолютно правдивым, на РУССКОМ ЯЗЫКЕ.
 2.  **ОБЪЕМ И ГЛУБИНА:** Не торопись. Раскрой тему подробно. Напиши несколько развернутых абзацев. Текст должен быть содержательным и "плотным", без "воды".
-3.  **СТИЛЬ:** Пиши как эксперт. Текст должен быть грамотным, аналитичным и увлекательным, чтобы удерживать внимание читателя до самого конца.
-4.  **СТРУКТУРА:** Создай цельное повествование с логичным началом, развитием и завершением. Текст должен течь естественно, как статья в качественном издании.
-5.  **ЗАПРЕТЫ:**
-    *   **НИКОГДА** не используй подзаголовки вроде "Введение", "Заключение", "Вывод" и т.п.
-    *   **НИКОГДА** не добавляй оговорки или дисклеймеры.
-    *   **НИКОГДА** не начинай текст со слов "Статья:".
+3.  **СТИЛЬ:** Пиши как эксперт. Текст должен быть грамотным, аналитичным и увлекательным.
+4.  **СТРУКТУРА:** Создай цельное повествование с логичным началом, развитием и завершением.
+5.  **ЗАПРЕТЫ:** **НИКОГДА** не используй подзаголовки ("Введение", "Заключение" и т.п.), дисклеймеры или маркеры типа "Статья:".
 
-Твоя цель — готовый журналистский продукт на безупречном РУССКОМ языке, который выглядит так, как будто его написал человек, а не ИИ.
+Твоя цель — готовый журналистский продукт на безупречном РУССКОМ языке.
 [/INST]
 
 НОВОСТИ ДЛЯ АНАЛИЗА:
@@ -175,42 +166,50 @@ def write_article_for_storyline(storyline):
         return storyline
     return None
 
-def find_real_photo_on_unsplash(storyline):
-    """Ищет реальное фото на Unsplash."""
-    if not UNSPLASH_ACCESS_KEY:
-        print("Ключ Unsplash не найден. Пропускаем поиск фото.")
-        return None
+def find_real_photo_on_google(storyline):
+    """Ищет реальное фото с лицензией на использование через Google Search API."""
+    if not GOOGLE_API_KEY or not GOOGLE_CSE_ID: return None
+    
     query = storyline.get("search_query")
     if not query: return None
-    print(f"Этап 3 (Основной): Поиск реального фото на Unsplash по запросу: '{query}'...")
-    url = "https://api.unsplash.com/search/photos"
-    params = { "query": query, "orientation": "landscape", "per_page": 1, "client_id": UNSPLASH_ACCESS_KEY }
+
+    print(f"Этап 3 (Основной): Поиск легального фото в Google по запросу: '{query}'...")
+    url = "https://www.googleapis.com/customsearch/v1"
+    params = {
+        "key": GOOGLE_API_KEY,
+        "cx": GOOGLE_CSE_ID,
+        "q": query,
+        "searchType": "image",
+        "rights": "cc_publicdomain,cc_attribute", # Фильтр по лицензии
+        "num": 1,
+        "imgSize": "large"
+    }
     try:
         response = requests.get(url, params=params, timeout=30)
         response.raise_for_status()
         data = response.json()
-        if data["results"]:
-            photo = data["results"][0]
-            image_url = photo["urls"]["regular"]
-            image_response = requests.get(image_url, timeout=60)
+        if "items" in data and data["items"]:
+            image_url = data["items"][0]["link"]
+            image_response = requests.get(image_url, timeout=60, headers={'User-Agent': 'Mozilla/5.0'})
             image_response.raise_for_status()
             os.makedirs(IMAGE_DIR, exist_ok=True)
             timestamp = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
             image_filename = f"{timestamp}.jpg"
             image_path = os.path.join(IMAGE_DIR, image_filename)
             with open(image_path, "wb") as f: f.write(image_response.content)
-            print(f"Фото с Unsplash успешно сохранено: {image_path}")
+            print(f"Фото из Google успешно сохранено: {image_path}")
             storyline['image_url'] = f"{GITHUB_REPO_URL.replace('github.com', 'raw.githubusercontent.com')}/main/images/{image_filename}"
             return storyline
         else:
-            print("На Unsplash ничего не найдено.")
+            print("В Google Images ничего не найдено (с учетом лицензии).")
             return None
     except requests.exceptions.RequestException as e:
-        print(f"Ошибка при обращении к Unsplash API: {e}")
+        print(f"Ошибка при обращении к Google Search API: {e}")
         return None
 
 def generate_ai_image(storyline):
     """Генерирует AI изображение как запасной вариант."""
+    # ... (эта функция без изменений)
     title = storyline['article'].split('\n', 1)[0]
     print(f"Этап 3 (Запасной): Генерация AI изображения для статьи '{title}'...")
     prompt = f"dramatic, ultra-realistic, 4k photo of: {title}. Professional sports photography, cinematic lighting"
@@ -226,7 +225,7 @@ def generate_ai_image(storyline):
     return storyline
 
 def update_rss_file(processed_storylines):
-    """Обновляет RSS-файл, добавляя новые статьи и удаляя старые статьи и изображения."""
+    """Обновляет RSS-файл, добавляя новые статьи и удаляя старые."""
     ET.register_namespace('yandex', 'http://news.yandex.ru')
     ET.register_namespace('media', 'http://search.yahoo.com/mrss/')
     try:
@@ -239,18 +238,27 @@ def update_rss_file(processed_storylines):
         ET.SubElement(channel, "title").text = "НА БАНКЕ"
         ET.SubElement(channel, "link").text = GITHUB_REPO_URL
         ET.SubElement(channel, "description").text = "«НА БАНКЕ». Все главные футбольные новости и слухи в одном месте. Трансферы, инсайды и честное мнение. Говорим о футболе так, как будто сидим с тобой на скамейке запасных."
+    
     for storyline in reversed(processed_storylines):
         article_text = storyline.get('article')
         if not article_text: continue
-        parts = article_text.strip().split('\n', 1)
-        if len(parts) < 2 or not parts[0].strip():
-            print("Пропускаем статью: сгенерирован ответ без заголовка или основного текста.")
-            continue
-        title = parts[0].strip().replace("**", "").replace("Заголовок:", "").strip().replace('"', '')
-        full_text = parts[1].strip()
+        
+        # ⬇️⬇️⬇️ НОВАЯ, НАДЕЖНАЯ ЛОГИКА ИЗВЛЕЧЕНИЯ ЗАГОЛОВКА ⬇️⬇️⬇️
+        lines = article_text.strip().split('\n')
+        title = ""
+        start_of_body_index = 0
+        for i, line in enumerate(lines):
+            if line.strip():
+                title = line.strip().replace("**", "").replace('"', '')
+                start_of_body_index = i + 1
+                break
+        
         if not title:
-            print("Пропускаем статью: заголовок пуст после очистки.")
+            print("Пропускаем статью: не удалось извлечь заголовок.")
             continue
+            
+        full_text = '\n'.join(lines[start_of_body_index:]).strip()
+
         item = ET.Element("item")
         ET.SubElement(item, "title").text = title
         ET.SubElement(item, "link").text = GITHUB_REPO_URL
@@ -265,23 +273,23 @@ def update_rss_file(processed_storylines):
         ET.SubElement(item, "pubDate").text = datetime.datetime.now(datetime.timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
         ET.SubElement(item, "guid", isPermaLink="false").text = str(hash(title))
         channel.insert(3, item)
+
     items = channel.findall('item')
     if len(items) > MAX_RSS_ITEMS:
         print(f"В RSS стало {len(items)} статей. Удаляем старые...")
         for old_item in items[MAX_RSS_ITEMS:]:
             enclosure = old_item.find('enclosure')
-            if enclosure is not None:
-                image_url = enclosure.get('url')
-                if image_url:
-                    try:
-                        image_filename = os.path.basename(image_url)
-                        image_path = os.path.join(IMAGE_DIR, image_filename)
-                        if os.path.exists(image_path):
-                            os.remove(image_path)
-                            print(f"Удаляем старое изображение: {image_filename}")
-                    except Exception as e:
-                        print(f"Не удалось удалить изображение {image_filename}: {e}")
+            if enclosure is not None and enclosure.get('url'):
+                try:
+                    image_filename = os.path.basename(enclosure.get('url'))
+                    image_path = os.path.join(IMAGE_DIR, image_filename)
+                    if os.path.exists(image_path):
+                        os.remove(image_path)
+                        print(f"Удаляем старое изображение: {image_filename}")
+                except Exception as e:
+                    print(f"Не удалось удалить изображение {image_filename}: {e}")
             channel.remove(old_item)
+
     xml_string = ET.tostring(root, 'utf-8')
     pretty_xml = minidom.parseString(xml_string).toprettyxml(indent="  ")
     with open(RSS_FILE_PATH, "w", encoding="utf-8") as f:
@@ -291,24 +299,31 @@ def update_rss_file(processed_storylines):
 def run_telegram_poster(storylines_json):
     """Читает JSON и отправляет посты в Telegram."""
     print("Запуск публикации в Telegram...")
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHANNEL_USERNAME:
-        print("Секреты для Telegram-постинга не найдены. Пропускаем.")
-        return
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHANNEL_USERNAME: return
     try:
         storylines = json.loads(storylines_json)
-    except json.JSONDecodeError:
-        print("Не удалось прочитать данные о статьях для постинга. Пропускаем.")
-        return
+    except json.JSONDecodeError: return
+
     for storyline in storylines:
         article_text = storyline.get('article')
         image_url = storyline.get('image_url')
         if not article_text or not image_url: continue
-        parts = article_text.strip().split('\n', 1)
-        if len(parts) < 2: continue
-        title, full_text = parts[0].strip(), parts[1].strip()
+        
+        # ⬇️⬇️⬇️ ИСПОЛЬЗУЕМ ТУ ЖЕ НАДЕЖНУЮ ЛОГИКУ ИЗВЛЕЧЕНИЯ ЗАГОЛОВКА ⬇️⬇️⬇️
+        lines = article_text.strip().split('\n')
+        title = ""
+        start_of_body_index = 0
+        for i, line in enumerate(lines):
+            if line.strip():
+                title = line.strip().replace("**", "").replace('"', '')
+                start_of_body_index = i + 1
+                break
+        
+        if not title: continue
+        full_text = '\n'.join(lines[start_of_body_index:]).strip()
+
         caption = f"<b>{title}</b>\n\n{full_text}"
-        if len(caption) > 1024:
-            caption = caption[:1021] + "..."
+        if len(caption) > 1024: caption = caption[:1021] + "..."
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
         payload = { 'chat_id': f"@{TELEGRAM_CHANNEL_USERNAME}", 'photo': image_url, 'caption': caption, 'parse_mode': 'HTML' }
         try:
@@ -317,8 +332,7 @@ def run_telegram_poster(storylines_json):
             print(f"✅ Статья '{title}' успешно опубликована в Telegram.")
         except requests.exceptions.RequestException as e:
             print(f"❌ Ошибка публикации статьи '{title}' в Telegram: {e}")
-            if e.response is not None:
-                print(f"Ответ сервера Telegram: {e.response.text}")
+            if e.response is not None: print(f"Ответ сервера Telegram: {e.response.text}")
 
 async def run_rss_generator():
     """Основная логика генерации RSS и изображений."""
@@ -330,7 +344,6 @@ async def run_rss_generator():
         combined_text = combined_text[:30000]
     storylines = cluster_news_into_storylines(combined_text)
     if not storylines:
-        # Важно передать пустой массив, чтобы следующий шаг не упал
         print("::set-output name=processed_storylines_json::[]")
         return
     processed_storylines = []
@@ -340,10 +353,17 @@ async def run_rss_generator():
             continue
         storyline_with_article = write_article_for_storyline(storyline)
         if not storyline_with_article: continue
-        final_storyline = find_real_photo_on_unsplash(storyline_with_article)
+        
+        # ⬇️⬇️⬇️ НОВАЯ "УМНАЯ" СТРАТЕГИЯ ИЗОБРАЖЕНИЙ ⬇️⬇️⬇️
+        final_storyline = None
+        if storyline.get('priority') == 'high' and GOOGLE_API_KEY:
+            final_storyline = find_real_photo_on_google(storyline_with_article)
+        
         if not final_storyline:
             final_storyline = generate_ai_image(storyline_with_article)
+            
         processed_storylines.append(final_storyline or storyline_with_article)
+    
     update_rss_file(processed_storylines)
     storylines_json = json.dumps(processed_storylines)
     print(f"::set-output name=processed_storylines_json::{storylines_json}")
