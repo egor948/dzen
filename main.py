@@ -10,15 +10,163 @@ import xml.dom.minidom as minidom
 import asyncio
 import json
 import re
+import sys
 
 # ================= НАСТРОЙКИ =================
-# Telegram (парсер)
+# Telegram
+API_ID = os.environ.get("API_ID")
+API_HASH = os.environ.get("API_HASH")
+SESSION_STRING = os.environ.get("SESSION_STRING")
+
+# ... (список каналов остается тем же) ...
+
+# ================== API Ключи ==================
+CF_ACCOUNT_ID = os.environ.get("CF_ACCOUNT_ID", "").strip()
+CF_API_TOKEN = os.environ.get("CF_API_TOKEN", "").strip()
+UNSPLASH_ACCESS_KEY = os.environ.get("UNSPLASH_ACCESS_KEY", "").strip()
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+TELEGRAM_CHANNEL_USERNAME = os.environ.get("TELEGRAM_CHANNEL_USERNAME", "").strip()
+
+# ================== Модели AI и прочие настройки ==================
+TEXT_MODEL = "@cf/mistral/mistral-7b-instruct-v0.1"
+IMAGE_MODEL = "@cf/stabilityai/stable-diffusion-xl-base-1.0"
+RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
+IMAGE_DIR = os.path.join(os.getcwd(), "images")
+MAX_RSS_ITEMS = 30
+GITHUB_REPO_URL = f"https://github.com/{os.environ.get('GITHUB_REPOSITORY', '')}"
+
+BANNED_PHRASES = [
+    "вступление", "конец", "приложение:", "источники:", "из автора:", "дополнительные комментарии:",
+    "заключение", "вывод:", "выводы:", "примечание:", "содержание:", "анализ:", "история:", "оценка:", "итог:", "перспективы:",
+    "история развития событий:", "раскрытие деталей:", "резюме:", "призыв к действию:",
+    "точная информация:", "голубая волна в милане", "право на выбор", "ставка на судзуки",
+    "конclusion:", "продолжение:", "статья:", "готовая статья:"
+]
+
+# ... (функции get_channel_posts, _call_cloudflare_ai, clean_ai_artifacts остаются без изменений) ...
+
+def cluster_news_into_storylines(all_news_text):
+    """Группирует новости в потенциальные сюжеты для статей."""
+    print("Этап 1: Группировка новостей в сюжеты...")
+    
+    # ⬇️⬇️⬇️ ОБНОВЛЕННЫЙ ПРОМПТ 1: Просим найти 3-5 сюжетов ⬇️⬇️⬇️
+    prompt = f"""[INST]Твоя задача — выступить в роли главного редактора. Проанализируй весь новостной поток ниже и найди от 3 до 5 самых интересных и независимых сюжетов для статей. Будь смелее в выборе: сюжет может быть основан даже на одной очень содержательной новости. Твоя цель — найти как можно больше качественного материала. Отбрасывай только совсем короткие, несвязанные или рекламные упоминания.
+
+Для каждого найденного сюжета верни следующую информацию:
+1. `title`: Краткое рабочее название сюжета НА РУССКОМ ЯЗЫКЕ (например, "Трансферная сага Мбаппе", "Результаты матчей АПЛ", "Скандал в Итальянском футболе").
+2. `category`: Одно-два слова, категория для RSS НА РУССКОМ ЯЗЫКЕ (например, "Трансферы", "АПЛ", "Серия А", "Скандалы").
+3. `search_query`: Ключевые слова на АНГЛИЙСКОМ для поиска релевантной фотографии (например, "Kylian Mbappe PSG football", "Premier League match action", "Italian football referee scandal").
+4. `news_texts`: ПОЛНЫЙ и НЕИЗМЕНЕННЫЙ текст всех новостей, относящихся к этому сюжету.
+
+Твой ответ ДОЛЖЕН БЫТЬ ТОЛЬКО в формате JSON-массива.
+[/INST]
+
+НОВОСТИ:
+---
+{all_news_text}
+---
+JSON:
+"""
+    response = _call_cloudflare_ai(TEXT_MODEL, {"prompt": prompt, "max_tokens": 2048})
+    # ... (остальной код функции без изменений) ...
+
+def write_article_for_storyline(storyline):
+    """Пишет статью по конкретному сюжету."""
+    print(f"Этап 2: Написание статьи на тему '{storyline['title']}'...")
+    
+    # ⬇️⬇️⬇️ ОБНОВЛЕННЫЙ ПРОМПТ 2: Просим писать более объемно ⬇️⬇️⬇️
+    prompt = f"""[INST]Ты — первоклассный спортивный журналист, известный своим глубоким анализом и увлекательным стилем изложения. Твоя задача — написать объемную, "плотную" и захватывающую статью для Яндекс.Дзен на основе предоставленных новостей.
+
+**Рабочее название сюжета:** "{storyline['title']}"
+
+**САМОЕ ГЛАВНОЕ ПРАВИЛО: Статья должна быть написана ИСКЛЮЧИТЕЛЬНО НА РУССКОМ ЯЗЫКЕ.**
+
+**СТРОГИЕ ТРЕБОВАНИЯ К СТАТЬЕ:**
+1.  **НАЧИНАЙ СРАЗУ С ЗАГОЛОВКА.** Заголовок должен быть ярким, интригующим, но абсолютно правдивым, на РУССКОМ ЯЗЫКЕ.
+2.  **ОБЪЕМ И ГЛУБИНА:** Не торопись. Раскрой тему подробно. Напиши несколько развернутых абзацев. Текст должен быть содержательным и "плотным", без "воды".
+3.  **СТИЛЬ:** Пиши как эксперт. Текст должен быть грамотным, аналитичным и увлекательным, чтобы удерживать внимание читателя до самого конца.
+4.  **СТРУКТУРА:** Создай цельное повествование с логичным началом, развитием и завершением. Текст должен течь естественно, как статья в качественном издании.
+5.  **ЗАПРЕТЫ:**
+    *   **НИКОГДА** не используй подзаголовки вроде "Введение", "Заключение", "Вывод" и т.п.
+    *   **НИКОГДА** не добавляй оговорки или дисклеймеры.
+    *   **НИКОГДА** не начинай текст со слов "Статья:".
+
+Твоя цель — готовый журналистский продукт на безупречном РУССКОМ языке, который выглядит так, как будто его написал человек, а не ИИ.
+[/INST]
+
+НОВОСТИ ДЛЯ АНАЛИЗА:
+---
+{storyline['news_texts']}
+---
+ГОТОВАЯ СТАТЬЯ:
+"""
+    response = _call_cloudflare_ai(TEXT_MODEL, {"prompt": prompt, "max_tokens": 1500})
+    if response:
+        raw_article_text = response.json()["result"]["response"]
+        cleaned_article_text = clean_ai_artifacts(raw_article_text)
+        storyline['article'] = cleaned_article_text
+        return storyline
+    return None
+
+# ... (функции find_real_photo_on_unsplash, generate_ai_image, update_rss_file, run_telegram_poster остаются без изменений) ...
+
+async def main():
+    combined_text = await get_channel_posts()
+    if not combined_text or len(combined_text) < 100: # ⬇️⬇️⬇️ УМЕНЬШАЕМ ПОРОГ ВХОДА ⬇️⬇️⬇️
+        print("Новых постов для обработки недостаточно.")
+        return
+    
+    if len(combined_text) > 30000:
+        combined_text = combined_text[:30000]
+
+    storylines = cluster_news_into_storylines(combined_text)
+    if not storylines: return
+        
+    processed_storylines = []
+    for storyline in storylines:
+        if len(storyline.get("news_texts", "")) < 100: # ⬇️⬇️⬇️ УМЕНЬШАЕМ ПОРОГ ВХОДА ⬇️⬇️⬇️
+            print(f"Пропускаем сюжет '{storyline.get('title')}' из-за недостатка материала.")
+            continue
+        
+        storyline_with_article = write_article_for_storyline(storyline)
+        if not storyline_with_article: continue
+        
+        final_storyline = find_real_photo_on_unsplash(storyline_with_article)
+        if not final_storyline:
+            final_storyline = generate_ai_image(storyline_with_article)
+            
+        processed_storylines.append(final_storyline or storyline_with_article)
+    
+    # ... (вызов update_rss_file и post_to_telegram через workflow)
+    # ... (код для set-output остается тем же)
+
+# ... (код для __main__ и разбора аргументов остается без изменений) ...
+
+# -----------------------------------------------------------------------------------------
+# НИЖЕ ПРИВЕДЕН ПОЛНЫЙ КОД ФАЙЛА ДЛЯ УДОБСТВА КОПИРОВАНИЯ
+# -----------------------------------------------------------------------------------------
+
+import os
+import requests
+import datetime
+from datetime import timedelta
+from telethon import TelegramClient
+from telethon.sessions import StringSession
+import xml.etree.ElementTree as ET
+import xml.dom.minidom as minidom
+import asyncio
+import json
+import re
+import sys
+
+# ================= НАСТРОЙКИ =================
+# Telegram
 API_ID = os.environ.get("API_ID")
 API_HASH = os.environ.get("API_HASH")
 SESSION_STRING = os.environ.get("SESSION_STRING")
 
 if not API_ID or not API_HASH or not SESSION_STRING:
-    raise ValueError("Один из секретов Telegram для парсинга не задан!")
+    raise ValueError("Один из секретов Telegram не задан!")
 
 client = TelegramClient(StringSession(SESSION_STRING), int(API_ID), API_HASH)
 
@@ -37,13 +185,8 @@ CHANNELS = sorted(list(set(CHANNELS_LIST)))
 CF_ACCOUNT_ID = os.environ.get("CF_ACCOUNT_ID", "").strip()
 CF_API_TOKEN = os.environ.get("CF_API_TOKEN", "").strip()
 UNSPLASH_ACCESS_KEY = os.environ.get("UNSPLASH_ACCESS_KEY", "").strip()
-
-# ⬇️⬇️⬇️ НОВЫЕ КЛЮЧИ ДЛЯ TELEGRAM-ПОСТИНГА ⬇️⬇️⬇️
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHANNEL_USERNAME = os.environ.get("TELEGRAM_CHANNEL_USERNAME", "").strip()
-
-if not all([CF_ACCOUNT_ID, CF_API_TOKEN, UNSPLASH_ACCESS_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_USERNAME]):
-    raise ValueError("Один из обязательных API ключей или имен не задан!")
 
 # ================== Модели AI и прочие настройки ==================
 TEXT_MODEL = "@cf/mistral/mistral-7b-instruct-v0.1"
@@ -52,51 +195,16 @@ RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
 IMAGE_DIR = os.path.join(os.getcwd(), "images")
 MAX_RSS_ITEMS = 30
 GITHUB_REPO_URL = f"https://github.com/{os.environ.get('GITHUB_REPOSITORY', '')}"
-# ===============================================
-
-# ⬇️⬇️⬇️ НОВАЯ ФУНКЦИЯ ДЛЯ ПУБЛИКАЦИИ В TELEGRAM ⬇️⬇️⬇️
-def post_to_telegram_channel(storyline):
-    """Отправляет готовую статью с картинкой в Telegram-канал."""
-    print(f"Публикация статьи '{storyline.get('title')}' в Telegram-канал...")
-    
-    article_text = storyline.get('article')
-    image_url = storyline.get('image_url')
-
-    if not article_text or not image_url:
-        print("Недостаточно данных для публикации в Telegram (отсутствует текст или картинка).")
-        return
-
-    parts = article_text.strip().split('\n', 1)
-    if len(parts) < 2: return
-    
-    title = parts[0].strip().replace("**", "").replace("Заголовок:", "").strip().replace('"', '')
-    full_text = parts[1].strip()
-
-    # Форматируем текст для Telegram (HTML) и обрезаем, если он слишком длинный
-    caption = f"<b>{title}</b>\n\n{full_text}"
-    if len(caption) > 1024: # Лимит Telegram для подписи к фото
-        caption = caption[:1021] + "..."
-
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
-    payload = {
-        'chat_id': f"@{TELEGRAM_CHANNEL_USERNAME}",
-        'photo': image_url,
-        'caption': caption,
-        'parse_mode': 'HTML'
-    }
-    
-    try:
-        response = requests.post(url, json=payload, timeout=60)
-        response.raise_for_status()
-        print("✅ Статья успешно опубликована в Telegram-канале.")
-    except requests.exceptions.RequestException as e:
-        print(f"❌ Ошибка публикации в Telegram: {e}")
-        if e.response is not None:
-            print(f"Ответ сервера Telegram: {e.response.text}")
-
+BANNED_PHRASES = [
+    "вступление", "конец", "приложение:", "источники:", "из автора:", "дополнительные комментарии:",
+    "заключение", "вывод:", "выводы:", "примечание:", "содержание:", "анализ:", "история:", "оценка:", "итог:", "перспективы:",
+    "история развития событий:", "раскрытие деталей:", "резюме:", "призыв к действию:",
+    "точная информация:", "голубая волна в милане", "право на выбор", "ставка на судзуки",
+    "конclusion:", "продолжение:", "статья:", "готовая статья:"
+]
 
 async def get_channel_posts():
-    # ... (эта функция без изменений)
+    """Собирает новости за последний час."""
     all_posts, unique_texts = [], set()
     now = datetime.datetime.now(datetime.timezone.utc)
     cutoff = now - timedelta(hours=1)
@@ -114,9 +222,8 @@ async def get_channel_posts():
     print(f"Найдено {len(all_posts)} уникальных постов.")
     return "\n\n---\n\n".join(p['text'] for p in all_posts)
 
-
 def _call_cloudflare_ai(model, payload, timeout=180):
-    # ... (эта функция без изменений)
+    """Универсальная функция для вызова API Cloudflare."""
     api_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{model}"
     headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
     try:
@@ -129,26 +236,21 @@ def _call_cloudflare_ai(model, payload, timeout=180):
             print(f"Ответ сервера ({e.response.status_code}): {e.response.text}")
         return None
 
-
 def clean_ai_artifacts(text):
-    # ... (эта функция без изменений)
-    banned_phrases = [
-        "заключение:", "вывод:", "примечание:", "содержание:", "анализ:", "история развития событий:", "раскрытие деталей:",
-        "**заключение**", "**вывод**", "**примечание**", "**содержание**", "**анализ**",
-        "статья:", "готовая статья:"
-    ]
+    """Программно удаляет распространенные 'артефакты' из текста ИИ."""
     lines = text.split('\n')
-    cleaned_lines = [line for line in lines if not any(line.lower().strip().startswith(phrase) for phrase in banned_phrases)]
+    cleaned_lines = []
+    for line in lines:
+        test_line = line.lower().strip().replace('*', '').replace(':', '')
+        if not any(test_line.startswith(phrase) for phrase in BANNED_PHRASES):
+            cleaned_lines.append(line)
     cleaned_text = '\n'.join(cleaned_lines).strip()
-    for phrase in banned_phrases:
-        cleaned_text = re.sub(r'(?i)' + re.escape(phrase), '', cleaned_text)
     return cleaned_text
 
-
 def cluster_news_into_storylines(all_news_text):
-    # ... (эта функция без изменений)
+    """Группирует новости в потенциальные сюжеты для статей."""
     print("Этап 1: Группировка новостей в сюжеты...")
-    prompt = f"""[INST]Проанализируй новостной поток ниже. Твоя задача — найти МАКСИМАЛЬНОЕ количество независимых сюжетов, из которых можно сделать качественные журналистские статьи. Будь менее строгим: сюжет может быть основан даже на одной-двух очень содержательных новостях. Твоя цель — качество, но и количество. Отбрасывай только совсем короткие, несвязанные или рекламные упоминания.
+    prompt = f"""[INST]Твоя задача — выступить в роли главного редактора. Проанализируй весь новостной поток ниже и найди от 3 до 5 самых интересных и независимых сюжетов для статей. Будь смелее в выборе: сюжет может быть основан даже на одной очень содержательной новости. Твоя цель — найти как можно больше качественного материала. Отбрасывай только совсем короткие, несвязанные или рекламные упоминания.
 
 Для каждого найденного сюжета верни следующую информацию:
 1. `title`: Краткое рабочее название сюжета НА РУССКОМ ЯЗЫКЕ (например, "Трансферная сага Мбаппе", "Результаты матчей АПЛ", "Скандал в Итальянском футболе").
@@ -180,24 +282,25 @@ JSON:
         return []
 
 def write_article_for_storyline(storyline):
-    # ... (эта функция без изменений)
+    """Пишет статью по конкретному сюжету."""
     print(f"Этап 2: Написание статьи на тему '{storyline['title']}'...")
-    prompt = f"""[INST]Ты — первоклассный спортивный журналист и редактор, пишущий для ведущего русскоязычного издания. Твоя задача — написать захватывающую статью для Яндекс.Дзен на основе предоставленных новостей.
+    prompt = f"""[INST]Ты — первоклассный спортивный журналист, известный своим глубоким анализом и увлекательным стилем изложения. Твоя задача — написать объемную, "плотную" и захватывающую статью для Яндекс.Дзен на основе предоставленных новостей.
 
 **Рабочее название сюжета:** "{storyline['title']}"
 
 **САМОЕ ГЛАВНОЕ ПРАВИЛО: Статья должна быть написана ИСКЛЮЧИТЕЛЬНО НА РУССКОМ ЯЗЫКЕ.**
 
 **СТРОГИЕ ТРЕБОВАНИЯ К СТАТЬЕ:**
-1.  **ЗАГОЛОВОК:** Твой ответ должен начинаться с яркого, интригующего, но абсолютно правдивого заголовка на РУССКОМ ЯЗЫКЕ. Заголовок должен быть на первой строке. НЕ ИСПОЛЬЗУЙ markdown или слова "Заголовок:".
-2.  **СТИЛЬ:** Пиши как эксперт. Текст должен быть грамотным, аналитичным и увлекательным, чтобы удерживать внимание читателя до самого конца.
-3.  **СТРУКТУРА:** Создай цельное повествование с логичным началом, развитием и завершением. Текст должен течь естественно, как статья в качественном издании.
-4.  **ЗАПРЕТЫ:**
-    *   **НИКОГДА** не используй подзаголовки вроде "Введение", "Раскрытие деталей", "Заключение", "Вывод", "Примечание", "Содержание" и т.п.
-    *   **НИКОГДА** не добавляй оговорки или дисклеймеры о том, что информация может быть неточной.
-    *   **НИКОГДА** не начинай текст со слов "Статья:" или похожих маркеров.
+1.  **НАЧИНАЙ СРАЗУ С ЗАГОЛОВКА.** Заголовок должен быть ярким, интригующим, но абсолютно правдивым, на РУССКОМ ЯЗЫКЕ.
+2.  **ОБЪЕМ И ГЛУБИНА:** Не торопись. Раскрой тему подробно. Напиши несколько развернутых абзацев. Текст должен быть содержательным и "плотным", без "воды".
+3.  **СТИЛЬ:** Пиши как эксперт. Текст должен быть грамотным, аналитичным и увлекательным, чтобы удерживать внимание читателя до самого конца.
+4.  **СТРУКТУРА:** Создай цельное повествование с логичным началом, развитием и завершением. Текст должен течь естественно, как статья в качественном издании.
+5.  **ЗАПРЕТЫ:**
+    *   **НИКОГДА** не используй подзаголовки вроде "Введение", "Заключение", "Вывод" и т.п.
+    *   **НИКОГДА** не добавляй оговорки или дисклеймеры.
+    *   **НИКОГДА** не начинай текст со слов "Статья:".
 
-Твоя цель — создать готовый журналистский продукт на безупречном РУССКОМ языке, который выглядит так, как будто его написал человек, а не ИИ.
+Твоя цель — готовый журналистский продукт на безупречном РУССКОМ языке, который выглядит так, как будто его написал человек, а не ИИ.
 [/INST]
 
 НОВОСТИ ДЛЯ АНАЛИЗА:
@@ -215,7 +318,7 @@ def write_article_for_storyline(storyline):
     return None
 
 def find_real_photo_on_unsplash(storyline):
-    # ... (эта функция без изменений)
+    """Ищет реальное фото на Unsplash."""
     query = storyline.get("search_query")
     if not query: return None
     print(f"Этап 3 (Основной): Поиск реального фото на Unsplash по запросу: '{query}'...")
@@ -246,7 +349,7 @@ def find_real_photo_on_unsplash(storyline):
         return None
 
 def generate_ai_image(storyline):
-    # ... (эта функция без изменений)
+    """Генерирует AI изображение как запасной вариант."""
     title = storyline['article'].split('\n', 1)[0]
     print(f"Этап 3 (Запасной): Генерация AI изображения для статьи '{title}'...")
     prompt = f"dramatic, ultra-realistic, 4k photo of: {title}. Professional sports photography, cinematic lighting"
@@ -262,7 +365,7 @@ def generate_ai_image(storyline):
     return storyline
 
 def update_rss_file(processed_storylines):
-    # ... (эта функция без изменений)
+    """Обновляет RSS-файл, добавляя новые статьи и удаляя старые статьи и изображения."""
     ET.register_namespace('yandex', 'http://news.yandex.ru')
     ET.register_namespace('media', 'http://search.yahoo.com/mrss/')
     try:
@@ -324,40 +427,74 @@ def update_rss_file(processed_storylines):
         f.write(pretty_xml)
     print(f"✅ RSS-лента успешно обновлена. Теперь в ней {len(channel.findall('item'))} статей.")
 
+def run_telegram_poster(storylines_json):
+    """Читает JSON и отправляет посты в Telegram."""
+    print("Запуск публикации в Telegram...")
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHANNEL_USERNAME:
+        print("Секреты для Telegram-постинга не найдены. Пропускаем.")
+        return
+    try:
+        storylines = json.loads(storylines_json)
+    except json.JSONDecodeError:
+        print("Не удалось прочитать данные о статьях для постинга. Пропускаем.")
+        return
+    for storyline in storylines:
+        article_text = storyline.get('article')
+        image_url = storyline.get('image_url')
+        if not article_text or not image_url: continue
+        parts = article_text.strip().split('\n', 1)
+        if len(parts) < 2: continue
+        title, full_text = parts[0].strip(), parts[1].strip()
+        caption = f"<b>{title}</b>\n\n{full_text}"
+        if len(caption) > 1024:
+            caption = caption[:1021] + "..."
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+        payload = { 'chat_id': f"@{TELEGRAM_CHANNEL_USERNAME}", 'photo': image_url, 'caption': caption, 'parse_mode': 'HTML' }
+        try:
+            response = requests.post(url, json=payload, timeout=60)
+            response.raise_for_status()
+            print(f"✅ Статья '{title}' успешно опубликована в Telegram.")
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Ошибка публикации статьи '{title}' в Telegram: {e}")
+            if e.response is not None:
+                print(f"Ответ сервера Telegram: {e.response.text}")
 
-async def main():
+async def run_rss_generator():
+    """Основная логика генерации RSS и изображений."""
     combined_text = await get_channel_posts()
-    if not combined_text or len(combined_text) < 200:
+    if not combined_text or len(combined_text) < 100:
         print("Новых постов для обработки недостаточно.")
         return
     if len(combined_text) > 30000:
         combined_text = combined_text[:30000]
-
     storylines = cluster_news_into_storylines(combined_text)
-    if not storylines: return
-        
+    if not storylines:
+        print("::set-output name=processed_storylines_json::[]")
+        return
     processed_storylines = []
     for storyline in storylines:
-        if len(storyline.get("news_texts", "")) < 150:
+        if len(storyline.get("news_texts", "")) < 100:
             print(f"Пропускаем сюжет '{storyline.get('title')}' из-за недостатка материала.")
             continue
         storyline_with_article = write_article_for_storyline(storyline)
         if not storyline_with_article: continue
-        
         final_storyline = find_real_photo_on_unsplash(storyline_with_article)
         if not final_storyline:
             final_storyline = generate_ai_image(storyline_with_article)
-        
-        # ⬇️⬇️⬇️ ВЫЗЫВАЕМ ФУНКЦИЮ ПУБЛИКАЦИИ В TELEGRAM ЗДЕСЬ ⬇️⬇️⬇️
-        if final_storyline:
-            post_to_telegram_channel(final_storyline)
-            processed_storylines.append(final_storyline)
-        elif storyline_with_article:
-            # Постим даже если картинки нет
-            post_to_telegram_channel(storyline_with_article)
-            processed_storylines.append(storyline_with_article)
-
+        processed_storylines.append(final_storyline or storyline_with_article)
     update_rss_file(processed_storylines)
+    storylines_json = json.dumps(processed_storylines)
+    print(f"::set-output name=processed_storylines_json::{storylines_json}")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    if len(sys.argv) > 1 and sys.argv[1] == '--mode':
+        mode = sys.argv[2]
+        if mode == 'generate_rss':
+            asyncio.run(run_rss_generator())
+        elif mode == 'post_to_telegram':
+            storylines_json_env = os.environ.get("PROCESSED_STORYLINES_JSON")
+            if storylines_json_env:
+                run_telegram_poster(storylines_json_env)
+    else:
+        # Для локального тестирования можно запустить основной генератор
+        asyncio.run(run_rss_generator())
