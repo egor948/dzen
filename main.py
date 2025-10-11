@@ -34,8 +34,8 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHANNEL_USERNAME = os.environ.get("TELEGRAM_CHANNEL_USERNAME", "").strip()
 
 # ================== Модели AI и прочие настройки ==================
-# ⬇️⬇️⬇️ МЕНЯЕМ МОДЕЛЬ НА LLAMA 3 ⬇️⬇️⬇️
 TEXT_MODEL = "@cf/meta/llama-3-8b-instruct"
+IMAGE_MODEL = "@cf/stabilityai/stable-diffusion-xl-base-1.0"
 RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
 IMAGE_DIR = os.path.join(os.getcwd(), "images")
 MAX_RSS_ITEMS = 30
@@ -101,8 +101,6 @@ def clean_ai_artifacts(text):
 def cluster_news_into_storylines(all_news_text):
     """Группирует новости в потенциальные сюжеты для статей."""
     print("Этап 1: Группировка новостей в сюжеты...")
-    
-    # ⬇️⬇️⬇️ НОВЫЙ ПРОМПТ ДЛЯ КЛАСТЕРИЗАЦИИ И ПОИСКА ФОТО ⬇️⬇️⬇️
     prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
 Ты — главный редактор спортивного новостного агентства. Твоя задача — проанализировать новостной поток и найти несколько (от 3 до 5) самых интересных сюжетов для статей.
 
@@ -110,7 +108,8 @@ def cluster_news_into_storylines(all_news_text):
 1. `title`: Краткое рабочее название сюжета НА РУССКОМ ЯЗЫКЕ.
 2. `category`: Одно-два слова, категория для RSS НА РУССКОМ ЯЗЫКЕ.
 3. `search_queries`: JSON-массив из 2-3 prioritized поисковых запросов на АНГЛИЙСКОМ для поиска фото. Первым должен быть самый конкретный запрос (игрок + клуб), последним — самый общий (стадион, эмблема клуба).
-4. `news_texts`: ПОЛНЫЙ и НЕИЗМЕНЕННЫЙ текст всех новостей по этому сюжету.
+4. `priority`: Приоритет сюжета. Если новость очень важная (топ-клуб, известный игрок, скандал), ставь 'high'. В остальных случаях — 'normal'.
+5. `news_texts`: ПОЛНЫЙ и НЕИЗМЕНЕННЫЙ текст всех новостей по этому сюжету.
 
 Твой ответ ДОЛЖЕН БЫТЬ ТОЛЬКО в формате JSON-массива. Никакого лишнего текста.
 Пример для `search_queries`: ["Kylian Mbappe Real Madrid official photo", "Kylian Mbappe portrait", "Santiago Bernabeu stadium"]<|eot_id|><|start_header_id|>user<|end_header_id|>
@@ -137,8 +136,6 @@ JSON:<|eot_id|><|start_header_id|>assistant<|end_header_id|>
 def write_article_for_storyline(storyline):
     """Пишет статью по конкретному сюжету."""
     print(f"Этап 2: Написание статьи на тему '{storyline['title']}'...")
-    
-    # ⬇️⬇️⬇️ НОВЫЙ ПРОМПТ ДЛЯ НАПИСАНИЯ СТАТЬИ ⬇️⬇️⬇️
     prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
 Ты — первоклассный спортивный журналист, пишущий для ведущего русскоязычного издания. Твоя задача — написать захватывающую, фактически точную и объемную статью на основе предоставленных новостей.
 
@@ -166,8 +163,6 @@ def write_article_for_storyline(storyline):
 def find_real_photo_on_google(storyline):
     """Ищет реальное фото с лицензией на использование через Google Search API."""
     if not GOOGLE_API_KEY or not GOOGLE_CSE_ID: return None
-    
-    # ⬇️⬇️⬇️ НОВАЯ ЛОГИКА: Последовательный поиск по нескольким запросам ⬇️⬇️⬇️
     queries = storyline.get("search_queries", [])
     if not queries: return None
 
@@ -185,11 +180,9 @@ def find_real_photo_on_google(storyline):
             data = response.json()
             if "items" in data and data["items"]:
                 image_url = data["items"][0]["link"]
-                # Проверяем, что картинка не является .svg или .gif, которые плохо поддерживаются
                 if not image_url.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
                     print(f"Найден неподходящий формат изображения: {image_url}. Пробуем следующий запрос.")
                     continue
-                
                 image_response = requests.get(image_url, timeout=60, headers={'User-Agent': 'Mozilla/5.0'})
                 image_response.raise_for_status()
                 os.makedirs(IMAGE_DIR, exist_ok=True)
@@ -199,11 +192,10 @@ def find_real_photo_on_google(storyline):
                 with open(image_path, "wb") as f: f.write(image_response.content)
                 print(f"Фото из Google успешно сохранено: {image_path}")
                 storyline['image_url'] = f"{GITHUB_REPO_URL.replace('github.com', 'raw.githubusercontent.com')}/main/images/{image_filename}"
-                return storyline # Возвращаем результат при первом же успехе
+                return storyline
         except requests.exceptions.RequestException as e:
             print(f"Ошибка при обращении к Google Search API с запросом '{query}': {e}")
-            continue # Пробуем следующий запрос
-    
+            continue
     print("В Google Images ничего не найдено (с учетом лицензии) по всем запросам.")
     return None
 
@@ -303,7 +295,6 @@ def run_telegram_poster(storylines_json):
         if not title: continue
         full_text = '\n'.join(lines[start_of_body_index:]).strip()
 
-        # Если нет картинки, отправляем только текст
         if not storyline.get('image_url'):
             print(f"Для статьи '{title}' не найдено изображение. Отправка только текста.")
             url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -335,7 +326,10 @@ async def run_rss_generator():
         combined_text = combined_text[:30000]
     storylines = cluster_news_into_storylines(combined_text)
     if not storylines:
-        print("::set-output name=processed_storylines_json::[]")
+        # ⬇️⬇️⬇️ ОБНОВЛЕНИЕ ЗДЕСЬ ⬇️⬇️⬇️
+        if 'GITHUB_OUTPUT' in os.environ:
+            with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                f.write('processed_storylines_json=[]\n')
         return
     processed_storylines = []
     for storyline in storylines:
@@ -345,13 +339,23 @@ async def run_rss_generator():
         storyline_with_article = write_article_for_storyline(storyline)
         if not storyline_with_article: continue
         
-        final_storyline = find_real_photo_on_google(storyline_with_article)
+        final_storyline = None
+        if storyline.get('priority') == 'high' and GOOGLE_API_KEY:
+            final_storyline = find_real_photo_on_google(storyline_with_article)
+        
+        # ⬇️⬇️⬇️ УБИРАЕМ ГЕНЕРАЦИЮ AI-КАРТИНОК ⬇️⬇️⬇️
+        # if not final_storyline:
+        #     final_storyline = generate_ai_image(storyline_with_article)
             
-        processed_storylines.append(final_storyline or storyline_with_article) # Добавляем даже если фото не найдено
+        processed_storylines.append(final_storyline or storyline_with_article)
     
     update_rss_file(processed_storylines)
     storylines_json = json.dumps(processed_storylines)
-    print(f"::set-output name=processed_storylines_json::{storylines_json}")
+    
+    # ⬇️⬇️⬇️ ОБНОВЛЕНИЕ ЗДЕСЬ: Новый способ передачи output ⬇️⬇️⬇️
+    if 'GITHUB_OUTPUT' in os.environ:
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+            f.write(f'processed_storylines_json={storylines_json}\n')
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == '--mode':
