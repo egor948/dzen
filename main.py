@@ -174,7 +174,13 @@ def find_real_photo_on_google(storyline):
     for query in queries:
         print(f"Этап 3 (Основной): Поиск легального фото в Google по запросу: '{query}'...")
         url = "https://www.googleapis.com/customsearch/v1"
-        params = {"key": GOOGLE_API_KEY, "cx": GOOGLE_CSE_ID, "q": query, "searchType": "image", "rights": "cc_publicdomain,cc_attribute,cc_sharealike", "num": 1, "imgSize": "large"}
+        params = {
+            "key": GOOGLE_API_KEY, "cx": GOOGLE_CSE_ID, "q": query,
+            "searchType": "image",
+            "rights": "cc_noncommercial,cc_sharealike", # <--- НОВОЕ, БОЛЕЕ ШИРОКОЕ ЗНАЧЕНИЕ
+            "num": 1,
+            "imgSize": "large"
+        }
         try:
             response = requests.get(url, params=params, timeout=30)
             response.raise_for_status()
