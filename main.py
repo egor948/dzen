@@ -177,7 +177,6 @@ def find_real_photo_on_google(storyline):
         params = {
             "key": GOOGLE_API_KEY, "cx": GOOGLE_CSE_ID, "q": query,
             "searchType": "image",
-            "rights": "cc_noncommercial,cc_sharealike", # <--- НОВОЕ, БОЛЕЕ ШИРОКОЕ ЗНАЧЕНИЕ
             "num": 1,
             "imgSize": "large"
         }
