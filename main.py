@@ -34,6 +34,7 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHANNEL_USERNAME = os.environ.get("TELEGRAM_CHANNEL_USERNAME", "").strip()
 
 # ================== Модели AI и прочие настройки ==================
+# ⬇️⬇️⬇️ ВАШЕ НАЗВАНИЕ МОДЕЛИ ⬇️⬇️⬇️
 TEXT_MODEL = "llama-3.3-70b-versatile"
 
 RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
@@ -113,7 +114,11 @@ def cluster_news_into_storylines(all_news_text, existing_titles):
 Для каждого из двух сюжетов верни JSON-объект с полями:
 1. `title`: Краткое рабочее название сюжета НА РУССКОМ.
 2. `category`: Категория для RSS НА РУССКОМ.
-3. `search_queries`: JSON-массив из 2-3 приоритетных запросов на АНГЛИЙСКОМ для поиска фото (сначала конкретный, потом общий).
+3. `search_queries`: JSON-массив из 2-3 приоритетных запросов на АНГЛИЙСКОМ для поиска фото. Следуй этим правилам:
+    *   Приоритет — Человек. Выдели основную персону.
+    *   Если есть контекст (например, 'тренер сборной Англии'), используй его в запросе.
+    *   Если две ключевые фигуры, попробуй найти их совместное фото.
+    *   Если нет людей, ищи место действия (стадион).
 4. `priority`: Приоритет сюжета ('high' или 'normal').
 5. `news_texts`: ПОЛНЫЙ текст всех новостей по этому сюжету.
 
@@ -131,8 +136,6 @@ def cluster_news_into_storylines(all_news_text, existing_titles):
 ---
 JSON:
 """
-    # Здесь вы вызываете _call_cloudflare_ai, но у вас его нет. Заменяем на _call_groq_ai
-    # И передаем правильный формат
     messages = [{"role": "user", "content": prompt}]
     raw_response = _call_groq_ai(messages)
     if not raw_response: return []
@@ -158,19 +161,22 @@ JSON:
 def write_article_for_storyline(storyline):
     """Пишет статью по конкретному сюжету."""
     print(f"Этап 2: Написание статьи на тему '{storyline['title']}'...")
-    prompt = f"""Ты — первоклассный спортивный журналист. Напиши захватывающую, фактически точную и объемную статью на РУССКОМ ЯЗЫКЕ на основе новостей ниже.
+    
+    # ⬇️⬇️⬇️ СБАЛАНСИРОВАННЫЙ ПРОМПТ ⬇️⬇️⬇️
+    prompt = f"""Ты — профессиональный спортивный журналист. Напиши захватывающую и объемную статью на РУССКОМ ЯЗЫКЕ на основе новостей ниже.
 
-**ТРЕБОВАНИЯ:**
-1.  **Начинай сразу с заголовка.** Заголовок должен быть ярким, интригующим, но правдивым.
-2.  **Никаких выдумок.** Не добавляй факты, которых нет в исходных новостях.
-3.  **Пиши как эксперт:** глубокий анализ, увлекательный стиль, цельное повествование.
-4.  **ЗАПРЕТЫ:** НИКОГДА не используй подзаголовки ("Введение", "Заключение"), дисклеймеры или маркеры ("Статья:").
+**Твоя задача:**
+1.  **Начинай сразу с яркого, интригующего заголовка.**
+2.  **Свяжи факты в единое повествование.** Твой текст должен быть "плотным", содержательным и интересным для чтения.
+3.  **Придерживайся фактов из текста.** Ты можешь делать логичные выводы и давать экспертную оценку, но не выдумывай информацию.
+4.  **ЗАПРЕТЫ:** Не используй формальные подзаголовки ("Введение", "Заключение") и любые дисклеймеры.
 """
     messages = [
         {"role": "user", "content": prompt + "\n\nНОВОСТИ ДЛЯ АНАЛИЗА:\n---\n" + storyline['news_texts']}
     ]
 
-    raw_article_text = _call_groq_ai(messages, max_tokens=1500)
+    # ⬇️⬇️⬇️ УВЕЛИЧЕННЫЙ ЛИМИТ ТОКЕНОВ ⬇️⬇️⬇️
+    raw_article_text = _call_groq_ai(messages, max_tokens=3500)
     if raw_article_text:
         cleaned_article_text = clean_ai_artifacts(raw_article_text)
         storyline['article'] = cleaned_article_text
@@ -178,13 +184,14 @@ def write_article_for_storyline(storyline):
     return None
 
 def find_real_photo_on_google(storyline):
-    """Ищет реальное фото с лицензией Creative Commons."""
+    """Ищет реальное фото без фильтра по лицензии."""
     if not GOOGLE_API_KEY or not GOOGLE_CSE_ID: return None
     queries = storyline.get("search_queries", [])
     if not queries: return None
     for query in queries:
-        print(f"Этап 3 (Основной): Поиск легального фото в Google по запросу: '{query}'...")
+        print(f"Этап 3 (Основной): Поиск фото в Google по запросу: '{query}'...")
         url = "https://www.googleapis.com/customsearch/v1"
+        # Убран параметр "rights" для поиска по всему вебу
         params = {"key": GOOGLE_API_KEY, "cx": GOOGLE_CSE_ID, "q": query, "searchType": "image", "num": 1, "imgSize": "large"}
         try:
             response = requests.get(url, params=params, timeout=30)
@@ -332,7 +339,6 @@ async def run_rss_generator():
     try:
         tree = ET.parse(RSS_FILE_PATH)
         root = tree.getroot()
-        # ⬇️⬇️⬇️ ИСПРАВЛЕНИЕ ЗДЕСЬ ⬇️⬇️⬇️
         existing_titles = [title_element.text for title_element in root.findall('.//item/title') if title_element.text is not None]
         print(f"Найдено {len(existing_titles)} существующих заголовков в RSS.")
     except (FileNotFoundError, ET.ParseError):
