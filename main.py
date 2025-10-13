@@ -34,8 +34,7 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHANNEL_USERNAME = os.environ.get("TELEGRAM_CHANNEL_USERNAME", "").strip()
 
 # ================== Модели AI и прочие настройки ==================
-# ⬇️⬇️⬇️ ИСПОЛЬЗУЕМ LLAMA 3 ЧЕРЕЗ GROQ ⬇️⬇️⬇️
-TEXT_MODEL = "llama-3.3-70b-versatile"
+TEXT_MODEL = "llama-3.1-70b-4096"
 
 RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
 IMAGE_DIR = os.path.join(os.getcwd(), "images")
@@ -74,7 +73,6 @@ async def get_channel_posts():
     print(f"Найдено {len(all_posts)} уникальных постов.")
     return "\n\n---\n\n".join(p['text'] for p in all_posts)
 
-# ⬇️⬇️⬇️ НОВАЯ ФУНКЦИЯ ДЛЯ РАБОТЫ С GROQ ⬇️⬇️⬇️
 def _call_groq_ai(messages, max_tokens=2048):
     """Универсальная функция для вызова API Groq."""
     if not GROQ_API_KEY:
@@ -107,10 +105,7 @@ def clean_ai_artifacts(text):
 def cluster_news_into_storylines(all_news_text, existing_titles):
     """Группирует новости в ДВА лучших сюжета для статей."""
     print("Этап 1: Группировка новостей в 2 лучших сюжета...")
-    
-    # Преобразуем список заголовков в строку для передачи в промпт
     titles_to_exclude = "\n".join(f"- {title}" for title in existing_titles)
-
     prompt = f"""[INST]Твоя задача — выступить в роли главного редактора. Проанализируй весь новостной поток ниже и найди **ДВА САМЫХ ЛУЧШИХ, наиболее проработанных и независимых сюжета** для статей.
 
 **ВАЖНОЕ ПРАВИЛО:** Не выбирай темы, заголовки которых похожи на те, что перечислены в списке "УЖЕ ОПУБЛИКОВАННЫЕ СТАТЬИ".
@@ -136,15 +131,16 @@ def cluster_news_into_storylines(all_news_text, existing_titles):
 ---
 JSON:
 """
-    response = _call_cloudflare_ai(TEXT_MODEL, {"prompt": prompt, "max_tokens": 2048})
-    if not response: return []
+    # Здесь вы вызываете _call_cloudflare_ai, но у вас его нет. Заменяем на _call_groq_ai
+    # И передаем правильный формат
+    messages = [{"role": "user", "content": prompt}]
+    raw_response = _call_groq_ai(messages)
+    if not raw_response: return []
     try:
-        raw_response = response.json()["result"]["response"]
         match = re.search(r'```json(.*?)```', raw_response, re.DOTALL)
         if not match: match = re.search(r'(\[.*\])', raw_response, re.DOTALL)
         if match:
             json_string = match.group(1).strip() if len(match.groups()) > 0 else match.group(0).strip()
-            # Попытка "вылечить" недописанный JSON
             if not json_string.endswith(']') and '}' in json_string:
                 last_brace_index = json_string.rfind('}')
                 if last_brace_index != -1:
@@ -182,7 +178,7 @@ def write_article_for_storyline(storyline):
     return None
 
 def find_real_photo_on_google(storyline):
-    # ... (эта функция без изменений)
+    """Ищет реальное фото с лицензией Creative Commons."""
     if not GOOGLE_API_KEY or not GOOGLE_CSE_ID: return None
     queries = storyline.get("search_queries", [])
     if not queries: return None
@@ -211,7 +207,7 @@ def find_real_photo_on_google(storyline):
         except requests.exceptions.RequestException as e:
             print(f"Ошибка при обращении к Google Search API с запросом '{query}': {e}")
             continue
-    print("В Google Images ничего не найдено (с учетом лицензии) по всем запросам.")
+    print("В Google Images ничего не найдено.")
     return None
 
 def update_rss_file(processed_storylines):
@@ -289,12 +285,11 @@ def update_rss_file(processed_storylines):
     current_items = channel.findall('item')
     print(f"✅ RSS-лента успешно обновлена. Теперь в ней {len(current_items)} статей.")
     
-    # Собираем все заголовки из обновленного файла и возвращаем их
     current_titles = [item.find('title').text for item in current_items if item.find('title') is not None]
     return current_titles
 
 def run_telegram_poster(storylines_json):
-    # ... (эта функция без изменений)
+    """Читает JSON и отправляет посты в Telegram."""
     print("Запуск публикации в Telegram...")
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHANNEL_USERNAME: return
     try:
@@ -333,12 +328,11 @@ def run_telegram_poster(storylines_json):
 
 async def run_rss_generator():
     """Основная логика генерации RSS и изображений."""
-    
-    # Шаг 0: Читаем "память" - заголовки уже существующих статей
     existing_titles = []
     try:
         tree = ET.parse(RSS_FILE_PATH)
         root = tree.getroot()
+        # ⬇️⬇️⬇️ ИСПРАВЛЕНИЕ ЗДЕСЬ ⬇️⬇️⬇️
         existing_titles = [title_element.text for title_element in root.findall('.//item/title') if title_element.text is not None]
         print(f"Найдено {len(existing_titles)} существующих заголовков в RSS.")
     except (FileNotFoundError, ET.ParseError):
@@ -351,33 +345,21 @@ async def run_rss_generator():
 
     if len(combined_text) > 30000:
         combined_text = combined_text[:30000]
-
-    # Шаг 1: Группировка с учетом "памяти"
     storylines = cluster_news_into_storylines(combined_text, existing_titles)
     if not storylines:
         if 'GITHUB_OUTPUT' in os.environ:
             with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
                 f.write('processed_storylines_json=[]\n')
         return
-
     processed_storylines = []
     for storyline in storylines:
         if len(storyline.get("news_texts", "")) < 100:
             print(f"Пропускаем сюжет '{storyline.get('title')}' из-за недостатка материала.")
             continue
-        
         storyline_with_article = write_article_for_storyline(storyline)
         if not storyline_with_article: continue
-        
         final_storyline = find_real_photo_on_google(storyline_with_article)
         processed_storylines.append(final_storyline or storyline_with_article)
-    
-    # Финальные шаги
-    update_rss_file(processed_storylines)
-    storylines_json = json.dumps(processed_storylines)
-    if 'GITHUB_OUTPUT' in os.environ:
-        with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-            f.write(f'processed_storylines_json={storylines_json}\n')
     
     update_rss_file(processed_storylines)
     storylines_json = json.dumps(processed_storylines)
