@@ -339,7 +339,7 @@ async def run_rss_generator():
     try:
         tree = ET.parse(RSS_FILE_PATH)
         root = tree.getroot()
-        existing_titles = [item.find('title').text for item in root.findall('.//item/title') if item.text]
+        existing_titles = [title_element.text for title_element in root.findall('.//item/title') if title_element.text is not None]
         print(f"Найдено {len(existing_titles)} существующих заголовков в RSS.")
     except (FileNotFoundError, ET.ParseError):
         print("RSS-файл не найден, будет создан новый.")
