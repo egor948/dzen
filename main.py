@@ -35,7 +35,7 @@ TELEGRAM_CHANNEL_USERNAME = os.environ.get("TELEGRAM_CHANNEL_USERNAME", "").stri
 
 # ================== Модели AI и прочие настройки ==================
 # ⬇️⬇️⬇️ ИСПОЛЬЗУЕМ LLAMA 3 ЧЕРЕЗ GROQ ⬇️⬇️⬇️
-TEXT_MODEL = "llama3-8b-8192"
+TEXT_MODEL = "llama-3.3-70b-versatile"
 
 RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
 IMAGE_DIR = os.path.join(os.getcwd(), "images")
