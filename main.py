@@ -104,37 +104,45 @@ def clean_ai_artifacts(text):
     cleaned_text = '\n'.join(cleaned_lines).strip()
     return cleaned_text
 
-def cluster_news_into_storylines(all_news_text):
-    """Группирует новости в потенциальные сюжеты для статей."""
-    print("Этап 1: Группировка новостей в сюжеты...")
-    prompt = f"""Твоя задача — выступить в роли главного редактора. Проанализируй весь новостной поток ниже и найди от 3 до 7 самых интересных и независимых сюжетов для статей.
-
-Для каждого найденного сюжета верни JSON-объект со следующими полями:
-1.  `title`: Краткое рабочее название сюжета НА РУССКОМ ЯЗЫКЕ.
-2.  `category`: Одно-два слова, категория для RSS НА РУССКОМ ЯЗЫКЕ.
-3.  `search_queries`: JSON-массив из 2-3 приоритетных поисковых запросов на АНГЛИЙСКОМ для поиска фото. Следуй этим правилам:
-    *   **Приоритет — Человек:** Главный объект для поиска — это человек. Выдели основную персону сюжета.
-    *   **Контекст — Король:** Если для человека указан контекст (например, 'тренер сборной Англии' или 'игрок Баварии'), обязательно используй его в запросе. Это поможет найти фото в нужной форме, а не в форме старого клуба. *Пример хорошего запроса:* "Gareth Southgate England national team coach".
-    *   **Несколько фигур:** Если в сюжете две ключевые фигуры (например, два тренера или игрок и тренер), **первым запросом** попробуй найти их **совместное фото**. *Пример:* "Pep Guardiola and Mikel Arteta".
-    *   **Запасные варианты:** Если совместное фото маловероятно или фигур много, выбери **главную персону**. Если в сюжете вообще нет людей, ищи **место действия** (например, стадион). *Пример:* "Anfield stadium Liverpool".
-4.  `priority`: Приоритет сюжета ('high' или 'normal').
-5.  `news_texts`: ПОЛНЫЙ и НЕИЗМЕНЕННЫЙ текст всех новостей по этому сюжету.
-
-Твой ответ ДОЛЖЕН содержать валидный JSON-массив, обернутый в теги <json> и </json>. Никакого лишнего текста вне этих тегов."""
+def cluster_news_into_storylines(all_news_text, existing_titles):
+    """Группирует новости в ДВА лучших сюжета для статей."""
+    print("Этап 1: Группировка новостей в 2 лучших сюжета...")
     
-    messages = [
-        {"role": "system", "content": "You are a helpful assistant that only returns JSON code blocks."},
-        {"role": "user", "content": prompt + "\n\nНОВОСТИ:\n---\n" + all_news_text}
-    ]
+    # Преобразуем список заголовков в строку для передачи в промпт
+    titles_to_exclude = "\n".join(f"- {title}" for title in existing_titles)
 
-    raw_response = _call_groq_ai(messages)
-    if not raw_response: return []
-    
+    prompt = f"""[INST]Твоя задача — выступить в роли главного редактора. Проанализируй весь новостной поток ниже и найди **ДВА САМЫХ ЛУЧШИХ, наиболее проработанных и независимых сюжета** для статей.
+
+**ВАЖНОЕ ПРАВИЛО:** Не выбирай темы, заголовки которых похожи на те, что перечислены в списке "УЖЕ ОПУБЛИКОВАННЫЕ СТАТЬИ".
+
+Для каждого из двух сюжетов верни JSON-объект с полями:
+1. `title`: Краткое рабочее название сюжета НА РУССКОM.
+2. `category`: Категория для RSS НА РУССКОМ.
+3. `search_queries`: JSON-массив из 2-3 приоритетных запросов на АНГЛИЙСКОМ для поиска фото (сначала конкретный, потом общий).
+4. `priority`: Приоритет сюжета ('high' или 'normal').
+5. `news_texts`: ПОЛНЫЙ текст всех новостей по этому сюжету.
+
+Твой ответ ДОЛЖЕН БЫТЬ ТОЛЬКО в формате JSON-массива из ДВУХ объектов, заключенного в ```json ... ```. Никакого лишнего текста.
+[/INST]
+
+УЖЕ ОПУБЛИКОВАННЫЕ СТАТЬИ:
+---
+{titles_to_exclude}
+---
+
+НОВЫЙ ПОТОК НОВОСТЕЙ:
+---
+{all_news_text}
+---
+JSON:
+"""
+    response = _call_cloudflare_ai(TEXT_MODEL, {"prompt": prompt, "max_tokens": 2048})
+    # ... (остальная часть функции остается без изменений, включая парсер)
+    if not response: return []
     try:
+        raw_response = response.json()["result"]["response"]
         match = re.search(r'```json(.*?)```', raw_response, re.DOTALL)
-        if not match:
-            match = re.search(r'(\[.*\])', raw_response, re.DOTALL)
-
+        if not match: match = re.search(r'(\[.*\])', raw_response, re.DOTALL)
         if match:
             json_string = match.group(1).strip() if len(match.groups()) > 0 else match.group(0).strip()
             storylines = json.loads(json_string)
@@ -142,11 +150,9 @@ def cluster_news_into_storylines(all_news_text):
             return storylines
         else:
             print("Не удалось найти JSON-блок в ответе модели.")
-            print("Сырой ответ от модели:", raw_response)
             return []
     except (json.JSONDecodeError, KeyError) as e:
         print(f"Ошибка декодирования JSON ответа модели: {e}")
-        print("Сырой ответ от модели:", raw_response)
         return []
 
 def write_article_for_storyline(storyline):
