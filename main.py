@@ -116,7 +116,7 @@ def cluster_news_into_storylines(all_news_text, existing_titles):
 **ВАЖНОЕ ПРАВИЛО:** Не выбирай темы, заголовки которых похожи на те, что перечислены в списке "УЖЕ ОПУБЛИКОВАННЫЕ СТАТЬИ".
 
 Для каждого из двух сюжетов верни JSON-объект с полями:
-1. `title`: Краткое рабочее название сюжета НА РУССКОM.
+1. `title`: Краткое рабочее название сюжета НА РУССКОМ.
 2. `category`: Категория для RSS НА РУССКОМ.
 3. `search_queries`: JSON-массив из 2-3 приоритетных запросов на АНГЛИЙСКОМ для поиска фото (сначала конкретный, потом общий).
 4. `priority`: Приоритет сюжета ('high' или 'normal').
@@ -137,7 +137,6 @@ def cluster_news_into_storylines(all_news_text, existing_titles):
 JSON:
 """
     response = _call_cloudflare_ai(TEXT_MODEL, {"prompt": prompt, "max_tokens": 2048})
-    # ... (остальная часть функции остается без изменений, включая парсер)
     if not response: return []
     try:
         raw_response = response.json()["result"]["response"]
@@ -145,6 +144,11 @@ JSON:
         if not match: match = re.search(r'(\[.*\])', raw_response, re.DOTALL)
         if match:
             json_string = match.group(1).strip() if len(match.groups()) > 0 else match.group(0).strip()
+            # Попытка "вылечить" недописанный JSON
+            if not json_string.endswith(']') and '}' in json_string:
+                last_brace_index = json_string.rfind('}')
+                if last_brace_index != -1:
+                    json_string = json_string[:last_brace_index + 1] + ']'
             storylines = json.loads(json_string)
             print(f"Найдено {len(storylines)} сюжетов для статей.")
             return storylines
@@ -211,7 +215,7 @@ def find_real_photo_on_google(storyline):
     return None
 
 def update_rss_file(processed_storylines):
-    # ... (эта функция без изменений)
+    """Обновляет RSS и возвращает список всех текущих заголовков."""
     ET.register_namespace('yandex', 'http://news.yandex.ru')
     ET.register_namespace('media', 'http://search.yahoo.com/mrss/')
     try:
@@ -224,9 +228,11 @@ def update_rss_file(processed_storylines):
         ET.SubElement(channel, "title").text = "НА БАНКЕ"
         ET.SubElement(channel, "link").text = GITHUB_REPO_URL
         ET.SubElement(channel, "description").text = "«НА БАНКЕ». Все главные футбольные новости и слухи в одном месте. Трансферы, инсайды и честное мнение. Говорим о футболе так, как будто сидим с тобой на скамейке запасных."
+    
     for storyline in reversed(processed_storylines):
         article_text = storyline.get('article')
         if not article_text: continue
+        
         lines = article_text.strip().split('\n')
         title, start_of_body_index = "", 0
         for i, line in enumerate(lines):
@@ -234,11 +240,16 @@ def update_rss_file(processed_storylines):
                 title = line.strip().replace("**", "").replace('"', '')
                 start_of_body_index = i + 1
                 break
+        
         if not title:
+            print("Пропускаем статью: не удалось извлечь заголовок.")
             continue
+            
         full_text = '\n'.join(lines[start_of_body_index:]).strip()
         if not full_text:
+            print(f"Пропускаем статью '{title}': отсутствует основной текст после заголовка.")
             continue
+
         item = ET.Element("item")
         ET.SubElement(item, "title").text = title
         ET.SubElement(item, "link").text = GITHUB_REPO_URL
@@ -253,6 +264,7 @@ def update_rss_file(processed_storylines):
         ET.SubElement(item, "pubDate").text = datetime.datetime.now(datetime.timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
         ET.SubElement(item, "guid", isPermaLink="false").text = str(hash(title))
         channel.insert(3, item)
+
     items = channel.findall('item')
     if len(items) > MAX_RSS_ITEMS:
         print(f"В RSS стало {len(items)} статей. Удаляем старые...")
@@ -268,11 +280,18 @@ def update_rss_file(processed_storylines):
                 except Exception as e:
                     print(f"Не удалось удалить изображение {image_filename}: {e}")
             channel.remove(old_item)
+
     xml_string = ET.tostring(root, 'utf-8')
     pretty_xml = minidom.parseString(xml_string).toprettyxml(indent="  ")
     with open(RSS_FILE_PATH, "w", encoding="utf-8") as f:
         f.write(pretty_xml)
-    print(f"✅ RSS-лента успешно обновлена. Теперь в ней {len(channel.findall('item'))} статей.")
+    
+    current_items = channel.findall('item')
+    print(f"✅ RSS-лента успешно обновлена. Теперь в ней {len(current_items)} статей.")
+    
+    # Собираем все заголовки из обновленного файла и возвращаем их
+    current_titles = [item.find('title').text for item in current_items if item.find('title') is not None]
+    return current_titles
 
 def run_telegram_poster(storylines_json):
     # ... (эта функция без изменений)
@@ -314,31 +333,51 @@ def run_telegram_poster(storylines_json):
 
 async def run_rss_generator():
     """Основная логика генерации RSS и изображений."""
+    
+    # Шаг 0: Читаем "память" - заголовки уже существующих статей
+    existing_titles = []
+    try:
+        tree = ET.parse(RSS_FILE_PATH)
+        root = tree.getroot()
+        existing_titles = [item.find('title').text for item in root.findall('.//item/title') if item.text]
+        print(f"Найдено {len(existing_titles)} существующих заголовков в RSS.")
+    except (FileNotFoundError, ET.ParseError):
+        print("RSS-файл не найден, будет создан новый.")
+
     combined_text = await get_channel_posts()
     if not combined_text or len(combined_text) < 100:
+        print("Новых постов для обработки недостаточно.")
         return
+
     if len(combined_text) > 30000:
         combined_text = combined_text[:30000]
-    storylines = cluster_news_into_storylines(combined_text)
+
+    # Шаг 1: Группировка с учетом "памяти"
+    storylines = cluster_news_into_storylines(combined_text, existing_titles)
     if not storylines:
         if 'GITHUB_OUTPUT' in os.environ:
             with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
                 f.write('processed_storylines_json=[]\n')
         return
+
     processed_storylines = []
     for storyline in storylines:
         if len(storyline.get("news_texts", "")) < 100:
+            print(f"Пропускаем сюжет '{storyline.get('title')}' из-за недостатка материала.")
             continue
+        
         storyline_with_article = write_article_for_storyline(storyline)
         if not storyline_with_article: continue
-        final_storyline = None
-        if storyline.get('priority') == 'high' and GOOGLE_API_KEY:
-            final_storyline = find_real_photo_on_google(storyline_with_article)
         
-        # ⬇️⬇️⬇️ ГЕНЕРАЦИЯ УБРАНА, ОСТАЛСЯ ТОЛЬКО ПОИСК ⬇️⬇️⬇️
-        # if not final_storyline:
-        #     final_storyline = generate_ai_image(storyline_with_article)
+        final_storyline = find_real_photo_on_google(storyline_with_article)
         processed_storylines.append(final_storyline or storyline_with_article)
+    
+    # Финальные шаги
+    update_rss_file(processed_storylines)
+    storylines_json = json.dumps(processed_storylines)
+    if 'GITHUB_OUTPUT' in os.environ:
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+            f.write(f'processed_storylines_json={storylines_json}\n')
     
     update_rss_file(processed_storylines)
     storylines_json = json.dumps(processed_storylines)
