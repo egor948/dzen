@@ -4,7 +4,9 @@ name: Auto RSS Update
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 7-21 * * *'
+    # ⬇️⬇️⬇️ НОВОЕ РАСПИСАНИЕ ⬇️⬇️⬇️
+    # Запуск каждые 30 минут, с 07:00 до 21:59 по UTC (соответствует 10:00 - 00:59 UTC+3)
+    - cron: '*/30 7-21 * * *'
 
 concurrency:
   group: ${{ github.workflow }}
