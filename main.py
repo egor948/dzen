@@ -11,6 +11,7 @@ import asyncio
 import json
 import re
 import sys
+from groq import Groq
 
 # ================= НАСТРОЙКИ =================
 # Telegram-парсер инициализируется по необходимости.
@@ -26,16 +27,15 @@ CHANNELS_LIST = [
 CHANNELS = sorted(list(set(CHANNELS_LIST)))
 
 # ================== API Ключи ==================
-CF_ACCOUNT_ID = os.environ.get("CF_ACCOUNT_ID", "").strip()
-CF_API_TOKEN = os.environ.get("CF_API_TOKEN", "").strip()
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "").strip()
 GOOGLE_CSE_ID = os.environ.get("GOOGLE_CSE_ID", "").strip()
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "").strip()
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHANNEL_USERNAME = os.environ.get("TELEGRAM_CHANNEL_USERNAME", "").strip()
 
 # ================== Модели AI и прочие настройки ==================
-# ⬇️⬇️⬇️ ВОЗВРАЩАЕМСЯ К 100% РАБОЧЕЙ МОДЕЛИ MISTRAL-7B ⬇️⬇️⬇️
-TEXT_MODEL = "@cf/mistral/mistral-7b-instruct-v0.1"
+# ⬇️⬇️⬇️ ИСПОЛЬЗУЕМ LLAMA 3 ЧЕРЕЗ GROQ ⬇️⬇️⬇️
+TEXT_MODEL = "llama3-8b-8192"
 
 RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
 IMAGE_DIR = os.path.join(os.getcwd(), "images")
@@ -50,7 +50,7 @@ BANNED_PHRASES = [
 ]
 
 async def get_channel_posts():
-    # ... (эта функция без изменений)
+    """Собирает новости за последний час."""
     API_ID = os.environ.get("API_ID")
     API_HASH = os.environ.get("API_HASH")
     SESSION_STRING = os.environ.get("SESSION_STRING")
@@ -74,22 +74,27 @@ async def get_channel_posts():
     print(f"Найдено {len(all_posts)} уникальных постов.")
     return "\n\n---\n\n".join(p['text'] for p in all_posts)
 
-def _call_cloudflare_ai(model, payload, timeout=240):
-    # ... (эта функция без изменений)
-    if not CF_ACCOUNT_ID or not CF_API_TOKEN: return None
-    api_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{model}"
-    headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
+# ⬇️⬇️⬇️ НОВАЯ ФУНКЦИЯ ДЛЯ РАБОТЫ С GROQ ⬇️⬇️⬇️
+def _call_groq_ai(messages, max_tokens=2048):
+    """Универсальная функция для вызова API Groq."""
+    if not GROQ_API_KEY:
+        print("Секрет GROQ_API_KEY не найден. Пропускаем вызов AI.")
+        return None
     try:
-        response = requests.post(api_url, headers=headers, json=payload, timeout=timeout)
-        response.raise_for_status()
-        return response
-    except requests.exceptions.RequestException as e:
-        print(f"Ошибка HTTP-запроса к Cloudflare API: {e}")
-        if e.response is not None: print(f"Ответ сервера ({e.response.status_code}): {e.response.text}")
+        client = Groq(api_key=GROQ_API_KEY)
+        chat_completion = client.chat.completions.create(
+            messages=messages,
+            model=TEXT_MODEL,
+            max_tokens=max_tokens,
+            temperature=0.7,
+        )
+        return chat_completion.choices[0].message.content
+    except Exception as e:
+        print(f"Ошибка при обращении к Groq API: {e}")
         return None
 
 def clean_ai_artifacts(text):
-    # ... (эта функция без изменений)
+    """Программно удаляет распространенные 'артефакты' из текста ИИ."""
     lines = text.split('\n')
     cleaned_lines = []
     for line in lines:
@@ -102,65 +107,57 @@ def clean_ai_artifacts(text):
 def cluster_news_into_storylines(all_news_text):
     """Группирует новости в потенциальные сюжеты для статей."""
     print("Этап 1: Группировка новостей в сюжеты...")
-    prompt = f"""[INST]Твоя задача — выступить в роли главного редактора. Проанализируй новостной поток ниже и найди от 3 до 5 самых интересных и независимых сюжетов для статей.
+    prompt = f"""Ты — главный редактор. Проанализируй новости и найди от 3 до 5 сюжетов.
 
 Для каждого сюжета верни JSON-объект с полями: `title` (название на русском), `category` (категория на русском), `search_queries` (массив из 2-3 запросов на английском для фото), `priority` ('high' или 'normal') и `news_texts` (полный текст новостей).
 
-Твой ответ ДОЛЖЕН содержать валидный JSON-массив, обернутый в теги <json> и </json>. Никакого лишнего текста вне этих тегов.
-Пример: <json>[{{"title": "...", ...}}]</json>
-[/INST]
-
-НОВОСТИ:
----
-{all_news_text}
----
-ОТВЕТ:
+Твой ответ ДОЛЖЕН БЫТЬ ТОЛЬКО в формате JSON-массива, заключенного в ```json ... ```. Никакого лишнего текста.
 """
-    response = _call_cloudflare_ai(TEXT_MODEL, {"prompt": prompt, "max_tokens": 2048})
-    if not response: return []
+    
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant that only returns JSON code blocks."},
+        {"role": "user", "content": prompt + "\n\nНОВОСТИ:\n---\n" + all_news_text}
+    ]
+
+    raw_response = _call_groq_ai(messages)
+    if not raw_response: return []
+    
     try:
-        raw_response = response.json()["result"]["response"]
-        match = re.search(r'<json>(.*?)</json>', raw_response, re.DOTALL)
+        match = re.search(r'```json(.*?)```', raw_response, re.DOTALL)
+        if not match:
+            match = re.search(r'(\[.*\])', raw_response, re.DOTALL)
+
         if match:
-            json_string = match.group(1).strip()
-            if not json_string.endswith(']') and '}' in json_string:
-                last_brace_index = json_string.rfind('}')
-                if last_brace_index != -1:
-                    json_string = json_string[:last_brace_index + 1] + ']'
+            json_string = match.group(1).strip() if len(match.groups()) > 0 else match.group(0).strip()
             storylines = json.loads(json_string)
             print(f"Найдено {len(storylines)} сюжетов для статей.")
             return storylines
         else:
-            print("Не удалось найти блок <json>...</json> в ответе модели.")
+            print("Не удалось найти JSON-блок в ответе модели.")
             print("Сырой ответ от модели:", raw_response)
             return []
     except (json.JSONDecodeError, KeyError) as e:
         print(f"Ошибка декодирования JSON ответа модели: {e}")
-        if 'raw_response' in locals():
-            print("Сырой ответ от модели:", raw_response)
+        print("Сырой ответ от модели:", raw_response)
         return []
 
 def write_article_for_storyline(storyline):
     """Пишет статью по конкретному сюжету."""
     print(f"Этап 2: Написание статьи на тему '{storyline['title']}'...")
-    prompt = f"""[INST]Ты — первоклассный спортивный журналист. Напиши захватывающую, фактически точную и объемную статью на РУССКОМ ЯЗЫКЕ на основе новостей ниже.
+    prompt = f"""Ты — первоклассный спортивный журналист. Напиши захватывающую, фактически точную и объемную статью на РУССКОМ ЯЗЫКЕ на основе новостей ниже.
 
 **ТРЕБОВАНИЯ:**
 1.  **Начинай сразу с заголовка.** Заголовок должен быть ярким, интригующим, но правдивым.
 2.  **Никаких выдумок.** Не добавляй факты, которых нет в исходных новостях.
 3.  **Пиши как эксперт:** глубокий анализ, увлекательный стиль, цельное повествование.
 4.  **ЗАПРЕТЫ:** НИКОГДА не используй подзаголовки ("Введение", "Заключение"), дисклеймеры или маркеры ("Статья:").
-[/INST]
-
-НОВОСТИ ДЛЯ АНАЛИЗА:
----
-{storyline['news_texts']}
----
-ГОТОВАЯ СТАТЬЯ:
 """
-    response = _call_cloudflare_ai(TEXT_MODEL, {"prompt": prompt, "max_tokens": 1500})
-    if response:
-        raw_article_text = response.json()["result"]["response"]
+    messages = [
+        {"role": "user", "content": prompt + "\n\nНОВОСТИ ДЛЯ АНАЛИЗА:\n---\n" + storyline['news_texts']}
+    ]
+
+    raw_article_text = _call_groq_ai(messages, max_tokens=1500)
+    if raw_article_text:
         cleaned_article_text = clean_ai_artifacts(raw_article_text)
         storyline['article'] = cleaned_article_text
         return storyline
@@ -174,12 +171,7 @@ def find_real_photo_on_google(storyline):
     for query in queries:
         print(f"Этап 3 (Основной): Поиск легального фото в Google по запросу: '{query}'...")
         url = "https://www.googleapis.com/customsearch/v1"
-        params = {
-            "key": GOOGLE_API_KEY, "cx": GOOGLE_CSE_ID, "q": query,
-            "searchType": "image",
-            "num": 1,
-            "imgSize": "large"
-        }
+        params = {"key": GOOGLE_API_KEY, "cx": GOOGLE_CSE_ID, "q": query, "searchType": "image", "rights": "cc_publicdomain,cc_attribute,cc_sharealike", "num": 1, "imgSize": "large"}
         try:
             response = requests.get(url, params=params, timeout=30)
             response.raise_for_status()
@@ -310,7 +302,6 @@ async def run_rss_generator():
     """Основная логика генерации RSS и изображений."""
     combined_text = await get_channel_posts()
     if not combined_text or len(combined_text) < 100:
-        print("Новых постов для обработки недостаточно.")
         return
     if len(combined_text) > 30000:
         combined_text = combined_text[:30000]
@@ -323,14 +314,16 @@ async def run_rss_generator():
     processed_storylines = []
     for storyline in storylines:
         if len(storyline.get("news_texts", "")) < 100:
-            print(f"Пропускаем сюжет '{storyline.get('title')}' из-за недостатка материала.")
             continue
         storyline_with_article = write_article_for_storyline(storyline)
         if not storyline_with_article: continue
+        final_storyline = None
+        if storyline.get('priority') == 'high' and GOOGLE_API_KEY:
+            final_storyline = find_real_photo_on_google(storyline_with_article)
         
-        # ⬇️⬇️⬇️ ОТКАЗЫВАЕМСЯ ОТ ГЕНЕРАЦИИ, ТОЛЬКО ПОИСК ⬇️⬇️⬇️
-        final_storyline = find_real_photo_on_google(storyline_with_article)
-            
+        # ⬇️⬇️⬇️ ГЕНЕРАЦИЯ УБРАНА, ОСТАЛСЯ ТОЛЬКО ПОИСК ⬇️⬇️⬇️
+        # if not final_storyline:
+        #     final_storyline = generate_ai_image(storyline_with_article)
         processed_storylines.append(final_storyline or storyline_with_article)
     
     update_rss_file(processed_storylines)
