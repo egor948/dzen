@@ -4,8 +4,6 @@ name: Auto RSS Update
 on:
   workflow_dispatch:
   schedule:
-    # ⬇️⬇️⬇️ НОВОЕ РАСПИСАНИЕ ⬇️⬇️⬇️
-    # Запуск каждые 30 минут, с 07:00 до 21:59 по UTC (соответствует 10:00 - 00:59 UTC+3)
     - cron: '*/30 7-21 * * *'
 
 concurrency:
@@ -38,10 +36,14 @@ jobs:
           API_HASH: ${{ secrets.API_HASH }}
           SESSION_STRING: ${{ secrets.SESSION_STRING }}
           
-          # ⬇️⬇️⬇️ НОВЫЙ СЕКРЕТ ДЛЯ GROQ ⬇️⬇️⬇️
+          # Секрет для Groq (генерация текста)
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+
+          # ⬇️⬇️⬇️ ВОЗВРАЩАЕМ СЕКРЕТЫ CLOUDFLARE ДЛЯ "УМНОЙ ПАМЯТИ" ⬇️⬇️⬇️
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           
-          # Секреты для Google Image Search (остаются)
+          # Секреты для Google Image Search
           GOOGLE_CSE_ID: ${{ secrets.GOOGLE_CSE_ID }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           
