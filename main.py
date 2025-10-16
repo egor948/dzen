@@ -11,7 +11,6 @@ import asyncio
 import json
 import re
 import sys
-from groq import Groq
 
 # ================= НАСТРОЙКИ =================
 # Telegram-парсер инициализируется по необходимости.
@@ -27,19 +26,23 @@ CHANNELS_LIST = [
 CHANNELS = sorted(list(set(CHANNELS_LIST)))
 
 # ================== API Ключи ==================
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "").strip()
+CF_ACCOUNT_ID = os.environ.get("CF_ACCOUNT_ID", "").strip()
+CF_API_TOKEN = os.environ.get("CF_API_TOKEN", "").strip()
 GOOGLE_CSE_ID = os.environ.get("GOOGLE_CSE_ID", "").strip()
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "").strip()
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHANNEL_USERNAME = os.environ.get("TELEGRAM_CHANNEL_USERNAME", "").strip()
 
 # ================== Модели AI и прочие настройки ==================
-# ⬇️⬇️⬇️ ВАШЕ НАЗВАНИЕ МОДЕЛИ ⬇️⬇️⬇️
-TEXT_MODEL = "llama-3.3-70b-versatile"
+TEXT_MODEL = "@cf/meta/llama-3.1-70b-4096"
+EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5" # Модель для "умной памяти"
 
 RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
 IMAGE_DIR = os.path.join(os.getcwd(), "images")
+MEMORY_FILE_PATH = os.path.join(os.getcwd(), "memory.json")
 MAX_RSS_ITEMS = 30
+SIMILARITY_THRESHOLD = 0.92 # Порог "похожести" для отсеивания дублей
+
 GITHUB_REPO_URL = f"https://github.com/{os.environ.get('GITHUB_REPOSITORY', '')}"
 BANNED_PHRASES = [
     "вступление", "конец", "приложение:", "источники:", "из автора:", "дополнительные комментарии:",
@@ -48,6 +51,26 @@ BANNED_PHRASES = [
     "точная информация:", "голубая волна в милане", "право на выбор", "ставка на судзуки",
     "конclusion:", "продолжение:", "статья:", "готовая статья:"
 ]
+
+def cosine_similarity(v1, v2):
+    """Рассчитывает косинусное сходство между двумя векторами."""
+    if not v1 or not v2: return 0.0
+    dot_product = sum(a * b for a, b in zip(v1, v2))
+    norm_v1 = sum(a * a for a in v1) ** 0.5
+    norm_v2 = sum(b * b for b in v2) ** 0.5
+    if norm_v1 == 0 or norm_v2 == 0: return 0.0
+    return dot_product / (norm_v1 * norm_v2)
+
+def get_embedding(text):
+    """Получает векторное представление текста с помощью Cloudflare AI."""
+    response = _call_cloudflare_ai(EMBEDDING_MODEL, {"text": [text]})
+    if response:
+        try:
+            return response.json()["result"]["data"][0]
+        except (KeyError, IndexError):
+            print("Ошибка: не удалось получить вектор из ответа Cloudflare.")
+            return None
+    return None
 
 async def get_channel_posts():
     """Собирает новости за последний час."""
@@ -74,22 +97,18 @@ async def get_channel_posts():
     print(f"Найдено {len(all_posts)} уникальных постов.")
     return "\n\n---\n\n".join(p['text'] for p in all_posts)
 
-def _call_groq_ai(messages, max_tokens=2048):
-    """Универсальная функция для вызова API Groq."""
-    if not GROQ_API_KEY:
-        print("Секрет GROQ_API_KEY не найден. Пропускаем вызов AI.")
-        return None
+def _call_cloudflare_ai(model, payload, timeout=240):
+    """Универсальная функция для вызова API Cloudflare."""
+    if not CF_ACCOUNT_ID or not CF_API_TOKEN: return None
+    api_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{model}"
+    headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
     try:
-        client = Groq(api_key=GROQ_API_KEY)
-        chat_completion = client.chat.completions.create(
-            messages=messages,
-            model=TEXT_MODEL,
-            max_tokens=max_tokens,
-            temperature=0.7,
-        )
-        return chat_completion.choices[0].message.content
-    except Exception as e:
-        print(f"Ошибка при обращении к Groq API: {e}")
+        response = requests.post(api_url, headers=headers, json=payload, timeout=timeout)
+        response.raise_for_status()
+        return response
+    except requests.exceptions.RequestException as e:
+        print(f"Ошибка HTTP-запроса к Cloudflare API: {e}")
+        if e.response is not None: print(f"Ответ сервера ({e.response.status_code}): {e.response.text}")
         return None
 
 def clean_ai_artifacts(text):
@@ -103,32 +122,20 @@ def clean_ai_artifacts(text):
     cleaned_text = '\n'.join(cleaned_lines).strip()
     return cleaned_text
 
-def cluster_news_into_storylines(all_news_text, existing_titles):
-    """Группирует новости в ДВА лучших сюжета для статей."""
+def cluster_news_into_storylines(all_news_text, memory):
+    """Группирует новости в ДВА лучших сюжета, проверяя их на уникальность по смыслу."""
     print("Этап 1: Группировка новостей в 2 лучших сюжета...")
-    titles_to_exclude = "\n".join(f"- {title}" for title in existing_titles)
     prompt = f"""[INST]Твоя задача — выступить в роли главного редактора. Проанализируй весь новостной поток ниже и найди **ДВА САМЫХ ЛУЧШИХ, наиболее проработанных и независимых сюжета** для статей.
-
-**ВАЖНОЕ ПРАВИЛО:** Не выбирай темы, заголовки которых похожи на те, что перечислены в списке "УЖЕ ОПУБЛИКОВАННЫЕ СТАТЬИ".
 
 Для каждого из двух сюжетов верни JSON-объект с полями:
 1. `title`: Краткое рабочее название сюжета НА РУССКОМ.
 2. `category`: Категория для RSS НА РУССКОМ.
-3. `search_queries`: JSON-массив из 2-3 приоритетных запросов на АНГЛИЙСКОМ для поиска фото. Следуй этим правилам:
-    *   Приоритет — Человек. Выдели основную персону.
-    *   Если есть контекст (например, 'тренер сборной Англии'), используй его в запросе.
-    *   Если две ключевые фигуры, попробуй найти их совместное фото.
-    *   Если нет людей, ищи место действия (стадион).
+3. `search_queries`: JSON-массив из 2-3 приоритетных запросов на АНГЛИЙСКОМ для поиска фото (сначала конкретный, потом общий).
 4. `priority`: Приоритет сюжета ('high' или 'normal').
 5. `news_texts`: ПОЛНЫЙ текст всех новостей по этому сюжету.
 
 Твой ответ ДОЛЖЕН БЫТЬ ТОЛЬКО в формате JSON-массива из ДВУХ объектов, заключенного в ```json ... ```. Никакого лишнего текста.
 [/INST]
-
-УЖЕ ОПУБЛИКОВАННЫЕ СТАТЬИ:
----
-{titles_to_exclude}
----
 
 НОВЫЙ ПОТОК НОВОСТЕЙ:
 ---
@@ -136,21 +143,37 @@ def cluster_news_into_storylines(all_news_text, existing_titles):
 ---
 JSON:
 """
-    messages = [{"role": "user", "content": prompt}]
-    raw_response = _call_groq_ai(messages)
-    if not raw_response: return []
+    response = _call_cloudflare_ai(TEXT_MODEL, {"prompt": prompt, "max_tokens": 2048})
+    if not response: return []
     try:
+        raw_response = response.json()["result"]["response"]
         match = re.search(r'```json(.*?)```', raw_response, re.DOTALL)
         if not match: match = re.search(r'(\[.*\])', raw_response, re.DOTALL)
         if match:
             json_string = match.group(1).strip() if len(match.groups()) > 0 else match.group(0).strip()
             if not json_string.endswith(']') and '}' in json_string:
                 last_brace_index = json_string.rfind('}')
-                if last_brace_index != -1:
-                    json_string = json_string[:last_brace_index + 1] + ']'
+                if last_brace_index != -1: json_string = json_string[:last_brace_index + 1] + ']'
             storylines = json.loads(json_string)
-            print(f"Найдено {len(storylines)} сюжетов для статей.")
-            return storylines
+
+            unique_storylines = []
+            for storyline in storylines:
+                title = storyline.get("title")
+                if not title: continue
+                title_embedding = get_embedding(title)
+                if not title_embedding:
+                    unique_storylines.append(storyline)
+                    continue
+                is_duplicate = False
+                for old_embedding in memory.values():
+                    if cosine_similarity(title_embedding, old_embedding) > SIMILARITY_THRESHOLD:
+                        print(f"Обнаружен смысловой дубль! Тема '{title}' похожа на одну из предыдущих. Отбраковываем.")
+                        is_duplicate = True
+                        break
+                if not is_duplicate: unique_storylines.append(storyline)
+            
+            print(f"Найдено {len(storylines)} сюжетов, из них {len(unique_storylines)} уникальных.")
+            return unique_storylines
         else:
             print("Не удалось найти JSON-блок в ответе модели.")
             return []
@@ -161,8 +184,6 @@ JSON:
 def write_article_for_storyline(storyline):
     """Пишет статью по конкретному сюжету."""
     print(f"Этап 2: Написание статьи на тему '{storyline['title']}'...")
-    
-    # ⬇️⬇️⬇️ СБАЛАНСИРОВАННЫЙ ПРОМПТ ⬇️⬇️⬇️
     prompt = f"""Ты — профессиональный спортивный журналист. Напиши захватывающую и объемную статью на РУССКОМ ЯЗЫКЕ на основе новостей ниже.
 
 **Твоя задача:**
@@ -171,17 +192,36 @@ def write_article_for_storyline(storyline):
 3.  **Придерживайся фактов из текста.** Ты можешь делать логичные выводы и давать экспертную оценку, но не выдумывай информацию.
 4.  **ЗАПРЕТЫ:** Не используй формальные подзаголовки ("Введение", "Заключение") и любые дисклеймеры.
 """
-    messages = [
-        {"role": "user", "content": prompt + "\n\nНОВОСТИ ДЛЯ АНАЛИЗА:\n---\n" + storyline['news_texts']}
-    ]
+    messages = [{"role": "user", "content": prompt + "\n\nНОВОСТИ ДЛЯ АНАЛИЗА:\n---\n" + storyline['news_texts']}]
+    response = _call_cloudflare_ai(TEXT_MODEL, {"messages": messages, "max_tokens": 3500})
+    if not response: return None
 
-    # ⬇️⬇️⬇️ УВЕЛИЧЕННЫЙ ЛИМИТ ТОКЕНОВ ⬇️⬇️⬇️
-    raw_article_text = _call_groq_ai(messages, max_tokens=3500)
-    if raw_article_text:
-        cleaned_article_text = clean_ai_artifacts(raw_article_text)
+    raw_article_text = response.json()["result"]["response"]
+    cleaned_article_text = clean_ai_artifacts(raw_article_text)
+    
+    lines = cleaned_article_text.strip().split('\n')
+    title, body_start_index = "", 0
+    for i, line in enumerate(lines):
+        if line.strip():
+            title = line.strip()
+            body_start_index = i + 1
+            break
+    
+    if len(title) > 120 or (len(title.split()) > 1 and sum(1 for word in title.split() if word[0].isupper()) / len(title.split()) > 0.5):
+        print(f"Обнаружен плохой заголовок: '{title}'. Запрашиваем новый...")
+        remake_prompt = f"Придумай короткий (5-10 слов), интригующий и понятный заголовок на русском языке для этой статьи:\n\n{cleaned_article_text}"
+        new_title_response = _call_cloudflare_ai(TEXT_MODEL, {"prompt": remake_prompt, "max_tokens": 60})
+        if new_title_response:
+            new_title = new_title_response.json()["result"]["response"].strip().replace('"', '')
+            print(f"Новый заголовок: '{new_title}'")
+            body = '\n'.join(lines[body_start_index:])
+            storyline['article'] = f"{new_title}\n{body}"
+        else:
+            storyline['article'] = cleaned_article_text
+    else:
         storyline['article'] = cleaned_article_text
-        return storyline
-    return None
+        
+    return storyline
 
 def find_real_photo_on_google(storyline):
     """Ищет реальное фото без фильтра по лицензии."""
@@ -191,7 +231,6 @@ def find_real_photo_on_google(storyline):
     for query in queries:
         print(f"Этап 3 (Основной): Поиск фото в Google по запросу: '{query}'...")
         url = "https://www.googleapis.com/customsearch/v1"
-        # Убран параметр "rights" для поиска по всему вебу
         params = {"key": GOOGLE_API_KEY, "cx": GOOGLE_CSE_ID, "q": query, "searchType": "image", "num": 1, "imgSize": "large"}
         try:
             response = requests.get(url, params=params, timeout=30)
@@ -291,9 +330,6 @@ def update_rss_file(processed_storylines):
     
     current_items = channel.findall('item')
     print(f"✅ RSS-лента успешно обновлена. Теперь в ней {len(current_items)} статей.")
-    
-    current_titles = [item.find('title').text for item in current_items if item.find('title') is not None]
-    return current_titles
 
 def run_telegram_poster(storylines_json):
     """Читает JSON и отправляет посты в Telegram."""
@@ -302,9 +338,11 @@ def run_telegram_poster(storylines_json):
     try:
         storylines = json.loads(storylines_json)
     except json.JSONDecodeError: return
+
     for storyline in storylines:
         article_text = storyline.get('article')
         if not article_text: continue
+        
         lines = article_text.strip().split('\n')
         title, start_of_body_index = "", 0
         for i, line in enumerate(lines):
@@ -312,19 +350,15 @@ def run_telegram_poster(storylines_json):
                 title = line.strip().replace("**", "").replace('"', '')
                 start_of_body_index = i + 1
                 break
+        
         if not title: continue
         full_text = '\n'.join(lines[start_of_body_index:]).strip()
-        if not storyline.get('image_url'):
-            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-            text = f"<b>{title}</b>\n\n{full_text}"
-            if len(text) > 4096: text = text[:4093] + "..."
-            payload = { 'chat_id': f"@{TELEGRAM_CHANNEL_USERNAME}", 'text': text, 'parse_mode': 'HTML' }
-        else:
-            image_url = storyline['image_url']
-            caption = f"<b>{title}</b>\n\n{full_text}"
-            if len(caption) > 1024: caption = caption[:1021] + "..."
-            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
-            payload = { 'chat_id': f"@{TELEGRAM_CHANNEL_USERNAME}", 'photo': image_url, 'caption': caption, 'parse_mode': 'HTML' }
+
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        text = f"<b>{title}</b>\n\n{full_text}"
+        if len(text) > 4096: text = text[:4093] + "..."
+        payload = { 'chat_id': f"@{TELEGRAM_CHANNEL_USERNAME}", 'text': text, 'parse_mode': 'HTML' }
+            
         try:
             response = requests.post(url, json=payload, timeout=60)
             response.raise_for_status()
@@ -335,14 +369,14 @@ def run_telegram_poster(storylines_json):
 
 async def run_rss_generator():
     """Основная логика генерации RSS и изображений."""
-    existing_titles = []
+    memory = {}
     try:
-        tree = ET.parse(RSS_FILE_PATH)
-        root = tree.getroot()
-        existing_titles = [title_element.text for title_element in root.findall('.//item/title') if title_element.text is not None]
-        print(f"Найдено {len(existing_titles)} существующих заголовков в RSS.")
-    except (FileNotFoundError, ET.ParseError):
-        print("RSS-файл не найден, будет создан новый.")
+        if os.path.exists(MEMORY_FILE_PATH):
+            with open(MEMORY_FILE_PATH, 'r', encoding='utf-8') as f:
+                memory = json.load(f)
+            print(f"Загружено {len(memory)} заголовков из памяти.")
+    except (FileNotFoundError, json.JSONDecodeError):
+        print("Файл памяти не найден или поврежден. Начинаем с чистого листа.")
 
     combined_text = await get_channel_posts()
     if not combined_text or len(combined_text) < 100:
@@ -351,39 +385,45 @@ async def run_rss_generator():
 
     if len(combined_text) > 30000:
         combined_text = combined_text[:30000]
-    storylines = cluster_news_into_storylines(combined_text, existing_titles)
+
+    storylines = cluster_news_into_storylines(combined_text, memory)
     if not storylines:
         if 'GITHUB_OUTPUT' in os.environ:
-            with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                f.write('processed_storylines_json=[]\n')
+            with open(os.environ['GITHUB_OUTPUT'], 'a') as f: f.write('processed_storylines_json=[]\n')
         return
+
     processed_storylines = []
+    new_memory_entries = {}
     for storyline in storylines:
         if len(storyline.get("news_texts", "")) < 100:
             print(f"Пропускаем сюжет '{storyline.get('title')}' из-за недостатка материала.")
             continue
+        
         storyline_with_article = write_article_for_storyline(storyline)
         if not storyline_with_article: continue
+        
+        title_for_memory = storyline_with_article['article'].split('\n', 1)[0].strip()
+        embedding = get_embedding(title_for_memory)
+        if title_for_memory and embedding:
+            new_memory_entries[title_for_memory] = embedding
+
         final_storyline = find_real_photo_on_google(storyline_with_article)
         processed_storylines.append(final_storyline or storyline_with_article)
     
     update_rss_file(processed_storylines)
+    
+    # Обновляем память
+    memory.update(new_memory_entries)
+    if len(memory) > 200:
+        oldest_titles = list(memory.keys())[:-150]
+        for t in oldest_titles: del memory[t]
+    with open(MEMORY_FILE_PATH, 'w', encoding='utf-8') as f:
+        json.dump(memory, f, ensure_ascii=False, indent=2)
+    print(f"Память обновлена. Теперь в ней {len(memory)} заголовков.")
+    
     storylines_json = json.dumps(processed_storylines)
     if 'GITHUB_OUTPUT' in os.environ:
         with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
             f.write(f'processed_storylines_json={storylines_json}\n')
 
-if __name__ == "__main__":
-    if len(sys.argv) > 2 and sys.argv[1] == '--mode':
-        mode = sys.argv[2]
-        if mode == 'generate_rss':
-            if not all(os.environ.get(key) for key in ["API_ID", "API_HASH", "SESSION_STRING"]):
-                print("Пропускаем генерацию RSS: не все секреты Telegram для парсинга доступны.")
-            else:
-                asyncio.run(run_rss_generator())
-        elif mode == 'post_to_telegram':
-            storylines_json_env = os.environ.get("PROCESSED_STORYLINES_JSON")
-            if storylines_json_env:
-                run_telegram_poster(storylines_json_env)
-    else:
-        print("Режим работы не указан. Запустите с --mode generate_rss или --mode post_to_telegram.")
+# ... (блок __main__ остается без изменений) ...
