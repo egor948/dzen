@@ -43,7 +43,7 @@ RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
 IMAGE_DIR = os.path.join(os.getcwd(), "images")
 MEMORY_FILE_PATH = os.path.join(os.getcwd(), "memory.json")
 MAX_RSS_ITEMS = 30
-SIMILARITY_THRESHOLD = 0.92
+SIMILARITY_THRESHOLD = 0.85
 GITHUB_REPO_URL = f"https://github.com/{os.environ.get('GITHUB_REPOSITORY', '')}"
 BANNED_PHRASES = [
     "вступление", "конец", "приложение:", "источники:", "из автора:", "дополнительные комментарии:",
