@@ -61,6 +61,19 @@ def cosine_similarity(v1, v2):
     if norm_v1 == 0 or norm_v2 == 0: return 0.0
     return dot_product / (norm_v1 * norm_v2)
 
+def _call_cloudflare_ai(model, payload, timeout=240):
+    if not CF_ACCOUNT_ID or not CF_API_TOKEN: return None
+    api_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{model}"
+    headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
+    try:
+        response = requests.post(api_url, headers=headers, json=payload, timeout=timeout)
+        response.raise_for_status()
+        return response
+    except requests.exceptions.RequestException as e:
+        print(f"Ошибка HTTP-запроса к Cloudflare API: {e}")
+        if e.response is not None: print(f"Ответ сервера ({e.response.status_code}): {e.response.text}")
+        return None
+
 def get_embedding(text):
     if not CF_ACCOUNT_ID or not CF_API_TOKEN:
         print("Ключи Cloudflare не найдены, 'умная память' отключена.")
@@ -96,19 +109,6 @@ async def get_channel_posts():
     print(f"Найдено {len(all_posts)} уникальных постов.")
     return "\n\n---\n\n".join(p['text'] for p in all_posts)
 
-def _call_cloudflare_ai(model, payload, timeout=240):
-    if not CF_ACCOUNT_ID or not CF_API_TOKEN: return None
-    api_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{model}"
-    headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
-    try:
-        response = requests.post(api_url, headers=headers, json=payload, timeout=timeout)
-        response.raise_for_status()
-        return response
-    except requests.exceptions.RequestException as e:
-        print(f"Ошибка HTTP-запроса к Cloudflare API: {e}")
-        if e.response is not None: print(f"Ответ сервера ({e.response.status_code}): {e.response.text}")
-        return None
-
 def _call_groq_ai(messages, max_tokens=2048):
     if not GROQ_API_KEY:
         print("Секрет GROQ_API_KEY не найден. Пропускаем вызов AI.")
@@ -124,10 +124,6 @@ def _call_groq_ai(messages, max_tokens=2048):
         return None
 
 def clean_ai_artifacts(text):
-    """Программно удаляет распространенные 'артефакты' из текста ИИ."""
-    # Удаляем Markdown-заголовки (###, ##, #)
-    text = re.sub(r'^\s*#+\s*', '', text, flags=re.MULTILINE)
-    
     lines = text.split('\n')
     cleaned_lines = []
     for line in lines:
@@ -166,7 +162,7 @@ def cluster_news_into_storylines(all_news_text, memory):
 JSON:
 """
     messages = [{"role": "user", "content": prompt}]
-    raw_response = _call_groq_ai(messages, max_tokens=1500)
+    raw_response = _call_groq_ai(messages)
     if not raw_response: return []
     try:
         match = re.search(r'```json(.*?)```', raw_response, re.DOTALL)
@@ -200,16 +196,23 @@ JSON:
 def write_article_for_storyline(storyline):
     """Пишет статью по конкретному сюжету."""
     print(f"Этап 2: Написание статьи на тему '{storyline['title']}'...")
-    prompt = f"""Ты — первоклассный спортивный журналист. Твоя задача — написать содержательную новостную заметку объемом 3-5 абзацев на РУССКОМ ЯЗЫКЕ на основе новостей ниже.
+    prompt = f"""[INST]Ты — первоклассный спортивный журналист. Напиши захватывающую и объемную статью на РУССКОМ ЯЗЫКЕ на основе новостей ниже.
 
 **ТРЕБОВАНИЯ:**
 1.  **Начинай сразу с яркого, интригующего заголовка.**
-2.  **Сосредоточься на фактах:** Кто? Что? Где? Когда? Почему? Избегай общих фраз и "воды".
-3.  **Придерживайся фактов из текста.** Не выдумывай информацию.
-4.  **ЗАПРЕТЫ:** НИКОГДА не используй Markdown-форматирование (`#`, `##`, `###`). НИКОГДА не используй формальные подзаголовки ("Введение", "Заключение") и любые дисклеймеры.
+2.  **Никаких выдумок.** Не добавляй факты, которых нет в исходных новостях.
+3.  **Пиши как эксперт:** глубокий анализ, увлекательный стиль, цельное повествование.
+4.  **ЗАПРЕТЫ:** НИКОГДА не используй подзаголовки ("Введение", "Заключение"), дисклеймеры или маркеры ("Статья:").
+[/INST]
+
+НОВОСТИ ДЛЯ АНАЛИЗА:
+---
+{storyline['news_texts']}
+---
+ГОТОВАЯ СТАТЬЯ:
 """
-    messages = [{"role": "user", "content": prompt + "\n\nНОВОСТИ ДЛЯ АНАЛИЗА:\n---\n" + storyline['news_texts']}]
-    raw_article_text = _call_groq_ai(messages, max_tokens=1800)
+    messages = [{"role": "user", "content": prompt}]
+    raw_article_text = _call_groq_ai(messages, max_tokens=3500)
     if not raw_article_text: return None
     
     cleaned_article_text = clean_ai_artifacts(raw_article_text)
@@ -243,7 +246,7 @@ def write_article_for_storyline(storyline):
     return storyline
 
 def find_real_photo_on_google(storyline):
-    # ... (эта функция без изменений)
+    """Ищет реальное фото без фильтра по лицензии."""
     if not GOOGLE_API_KEY or not GOOGLE_CSE_ID: return None
     queries = storyline.get("search_queries", [])
     if not queries: return None
@@ -276,7 +279,6 @@ def find_real_photo_on_google(storyline):
     return None
 
 def update_rss_file(processed_storylines):
-    # ... (эта функция без изменений)
     ET.register_namespace('yandex', 'http://news.yandex.ru')
     ET.register_namespace('media', 'http://search.yahoo.com/mrss/')
     try:
@@ -293,6 +295,7 @@ def update_rss_file(processed_storylines):
     for storyline in reversed(processed_storylines):
         article_text = storyline.get('article')
         if not article_text: continue
+        
         lines = article_text.strip().split('\n')
         title, start_of_body_index = "", 0
         for i, line in enumerate(lines):
@@ -300,12 +303,16 @@ def update_rss_file(processed_storylines):
                 title = line.strip().replace("**", "").replace('"', '')
                 start_of_body_index = i + 1
                 break
+        
         if not title:
+            print("Пропускаем статью: не удалось извлечь заголовок.")
             continue
+            
         full_text = '\n'.join(lines[start_of_body_index:]).strip()
         if len(full_text.split()) < 30:
             print(f"Пропускаем статью '{title}': основной текст слишком короткий ({len(full_text.split())} слов).")
             continue
+
         item = ET.Element("item")
         ET.SubElement(item, "title").text = title
         ET.SubElement(item, "link").text = GITHUB_REPO_URL
@@ -320,6 +327,7 @@ def update_rss_file(processed_storylines):
         ET.SubElement(item, "pubDate").text = datetime.datetime.now(datetime.timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
         ET.SubElement(item, "guid", isPermaLink="false").text = str(hash(title))
         channel.insert(3, item)
+
     items = channel.findall('item')
     if len(items) > MAX_RSS_ITEMS:
         print(f"В RSS стало {len(items)} статей. Удаляем старые...")
@@ -335,10 +343,12 @@ def update_rss_file(processed_storylines):
                 except Exception as e:
                     print(f"Не удалось удалить изображение {image_filename}: {e}")
             channel.remove(old_item)
+
     xml_string = ET.tostring(root, 'utf-8')
     pretty_xml = minidom.parseString(xml_string).toprettyxml(indent="  ")
     with open(RSS_FILE_PATH, "w", encoding="utf-8") as f:
         f.write(pretty_xml)
+    
     current_items = channel.findall('item')
     print(f"✅ RSS-лента успешно обновлена. Теперь в ней {len(current_items)} статей.")
 
@@ -349,9 +359,11 @@ def run_telegram_poster(storylines_json):
     try:
         storylines = json.loads(storylines_json)
     except json.JSONDecodeError: return
+
     for storyline in storylines:
         article_text = storyline.get('article')
         if not article_text: continue
+        
         lines = article_text.strip().split('\n')
         title, start_of_body_index = "", 0
         for i, line in enumerate(lines):
@@ -359,15 +371,19 @@ def run_telegram_poster(storylines_json):
                 title = line.strip().replace("**", "").replace('"', '')
                 start_of_body_index = i + 1
                 break
+        
         if not title: continue
         full_text = '\n'.join(lines[start_of_body_index:]).strip()
+
         if len(full_text.split()) < 30:
             print(f"Пропускаем отправку в Telegram статьи '{title}': основной текст слишком короткий.")
             continue
+        
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         text = f"<b>{title}</b>\n\n{full_text}"
         if len(text) > 4096: text = text[:4093] + "..."
         payload = { 'chat_id': f"@{TELEGRAM_CHANNEL_USERNAME}", 'text': text, 'parse_mode': 'HTML' }
+            
         try:
             response = requests.post(url, json=payload, timeout=60)
             response.raise_for_status()
@@ -388,20 +404,26 @@ async def run_rss_generator():
         print("Файл памяти не найден или пуст.")
 
     combined_text = await get_channel_posts()
-    if not combined_text or len(combined_text) < 100:
+    if not combined_text or len(combined_text) < 50:
+        print("Новых постов для обработки недостаточно.")
         return
+
     if len(combined_text) > 30000:
         combined_text = combined_text[:30000]
+
     storylines = cluster_news_into_storylines(combined_text, memory)
     if not storylines:
         if 'GITHUB_OUTPUT' in os.environ:
             with open(os.environ['GITHUB_OUTPUT'], 'a') as f: f.write('processed_storylines_json=[]\n')
         return
+
     processed_storylines = []
     new_memory_entries = {}
     for storyline in storylines:
         if len(storyline.get("news_texts", "")) < 50:
+            print(f"Пропускаем сюжет '{storyline.get('title')}' из-за недостатка материала.")
             continue
+        
         storyline_with_article = write_article_for_storyline(storyline)
         if not storyline_with_article: continue
         
