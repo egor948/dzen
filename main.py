@@ -36,14 +36,14 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHANNEL_USERNAME = os.environ.get("TELEGRAM_CHANNEL_USERNAME", "").strip()
 
 # ================== Модели AI и прочие настройки ==================
-TEXT_MODEL = "openai/gpt-oss-20b"
+TEXT_MODEL = "@cf/openai/gpt-oss-20b"
 EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5"
 
 RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
 IMAGE_DIR = os.path.join(os.getcwd(), "images")
 MEMORY_FILE_PATH = os.path.join(os.getcwd(), "memory.json")
 MAX_RSS_ITEMS = 30
-SIMILARITY_THRESHOLD = 0.85 # Более строгий порог
+SIMILARITY_THRESHOLD = 0.85
 GITHUB_REPO_URL = f"https://github.com/{os.environ.get('GITHUB_REPOSITORY', '')}"
 BANNED_PHRASES = [
     "вступление", "конец", "приложение:", "источники:", "из автора:", "дополнительные комментарии:",
@@ -124,6 +124,10 @@ def _call_groq_ai(messages, max_tokens=2048):
         return None
 
 def clean_ai_artifacts(text):
+    """Программно удаляет распространенные 'артефакты' из текста ИИ."""
+    # Удаляем Markdown-заголовки (###, ##, #)
+    text = re.sub(r'^\s*#+\s*', '', text, flags=re.MULTILINE)
+    
     lines = text.split('\n')
     cleaned_lines = []
     for line in lines:
@@ -162,7 +166,7 @@ def cluster_news_into_storylines(all_news_text, memory):
 JSON:
 """
     messages = [{"role": "user", "content": prompt}]
-    raw_response = _call_groq_ai(messages)
+    raw_response = _call_groq_ai(messages, max_tokens=1500)
     if not raw_response: return []
     try:
         match = re.search(r'```json(.*?)```', raw_response, re.DOTALL)
@@ -196,16 +200,16 @@ JSON:
 def write_article_for_storyline(storyline):
     """Пишет статью по конкретному сюжету."""
     print(f"Этап 2: Написание статьи на тему '{storyline['title']}'...")
-    prompt = f"""Ты — профессиональный спортивный журналист. Напиши захватывающую и объемную статью на РУССКОМ ЯЗЫКЕ на основе новостей ниже.
+    prompt = f"""Ты — первоклассный спортивный журналист. Твоя задача — написать содержательную новостную заметку объемом 3-5 абзацев на РУССКОМ ЯЗЫКЕ на основе новостей ниже.
 
-**Твоя задача:**
+**ТРЕБОВАНИЯ:**
 1.  **Начинай сразу с яркого, интригующего заголовка.**
-2.  **Свяжи факты в единое повествование.** Твой текст должен быть "плотным", содержательным и интересным для чтения.
-3.  **Придерживайся фактов из текста.** Ты можешь делать логичные выводы и давать экспертную оценку, но не выдумывай информацию.
-4.  **ЗАПРЕТЫ:** Не используй формальные подзаголовки ("Введение", "Заключение") и любые дисклеймеры.
+2.  **Сосредоточься на фактах:** Кто? Что? Где? Когда? Почему? Избегай общих фраз и "воды".
+3.  **Придерживайся фактов из текста.** Не выдумывай информацию.
+4.  **ЗАПРЕТЫ:** НИКОГДА не используй Markdown-форматирование (`#`, `##`, `###`). НИКОГДА не используй формальные подзаголовки ("Введение", "Заключение") и любые дисклеймеры.
 """
     messages = [{"role": "user", "content": prompt + "\n\nНОВОСТИ ДЛЯ АНАЛИЗА:\n---\n" + storyline['news_texts']}]
-    raw_article_text = _call_groq_ai(messages, max_tokens=3500)
+    raw_article_text = _call_groq_ai(messages, max_tokens=1800)
     if not raw_article_text: return None
     
     cleaned_article_text = clean_ai_artifacts(raw_article_text)
@@ -239,6 +243,7 @@ def write_article_for_storyline(storyline):
     return storyline
 
 def find_real_photo_on_google(storyline):
+    # ... (эта функция без изменений)
     if not GOOGLE_API_KEY or not GOOGLE_CSE_ID: return None
     queries = storyline.get("search_queries", [])
     if not queries: return None
@@ -271,6 +276,7 @@ def find_real_photo_on_google(storyline):
     return None
 
 def update_rss_file(processed_storylines):
+    # ... (эта функция без изменений)
     ET.register_namespace('yandex', 'http://news.yandex.ru')
     ET.register_namespace('media', 'http://search.yahoo.com/mrss/')
     try:
@@ -287,7 +293,6 @@ def update_rss_file(processed_storylines):
     for storyline in reversed(processed_storylines):
         article_text = storyline.get('article')
         if not article_text: continue
-        
         lines = article_text.strip().split('\n')
         title, start_of_body_index = "", 0
         for i, line in enumerate(lines):
@@ -295,16 +300,12 @@ def update_rss_file(processed_storylines):
                 title = line.strip().replace("**", "").replace('"', '')
                 start_of_body_index = i + 1
                 break
-        
         if not title:
-            print("Пропускаем статью: не удалось извлечь заголовок.")
             continue
-            
         full_text = '\n'.join(lines[start_of_body_index:]).strip()
         if len(full_text.split()) < 30:
             print(f"Пропускаем статью '{title}': основной текст слишком короткий ({len(full_text.split())} слов).")
             continue
-
         item = ET.Element("item")
         ET.SubElement(item, "title").text = title
         ET.SubElement(item, "link").text = GITHUB_REPO_URL
@@ -319,7 +320,6 @@ def update_rss_file(processed_storylines):
         ET.SubElement(item, "pubDate").text = datetime.datetime.now(datetime.timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
         ET.SubElement(item, "guid", isPermaLink="false").text = str(hash(title))
         channel.insert(3, item)
-
     items = channel.findall('item')
     if len(items) > MAX_RSS_ITEMS:
         print(f"В RSS стало {len(items)} статей. Удаляем старые...")
@@ -335,12 +335,10 @@ def update_rss_file(processed_storylines):
                 except Exception as e:
                     print(f"Не удалось удалить изображение {image_filename}: {e}")
             channel.remove(old_item)
-
     xml_string = ET.tostring(root, 'utf-8')
     pretty_xml = minidom.parseString(xml_string).toprettyxml(indent="  ")
     with open(RSS_FILE_PATH, "w", encoding="utf-8") as f:
         f.write(pretty_xml)
-    
     current_items = channel.findall('item')
     print(f"✅ RSS-лента успешно обновлена. Теперь в ней {len(current_items)} статей.")
 
@@ -363,11 +361,9 @@ def run_telegram_poster(storylines_json):
                 break
         if not title: continue
         full_text = '\n'.join(lines[start_of_body_index:]).strip()
-        
         if len(full_text.split()) < 30:
             print(f"Пропускаем отправку в Telegram статьи '{title}': основной текст слишком короткий.")
             continue
-
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         text = f"<b>{title}</b>\n\n{full_text}"
         if len(text) > 4096: text = text[:4093] + "..."
