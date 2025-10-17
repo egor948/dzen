@@ -427,41 +427,42 @@ async def run_rss_generator():
     if len(combined_text) > 30000:
         combined_text = combined_text[:30000]
 
-    storylines, main_event_query = cluster_news_into_storylines(combined_text, memory)
+    unique_storylines, main_event_query = cluster_news_into_storylines(combined_text, memory)
     
-    # Логика "Плана Б"
-    if not storylines:
-        print("Уникальных сюжетов не найдено. Переходим к плану Б: создание общей новостной сводки.")
+    processed_storylines = []
+    if unique_storylines:
+        print(f"Начинаем обработку {len(unique_storylines)} уникальных сюжетов...")
+        for storyline in unique_storylines:
+            if len(storyline.get("news_texts", "")) < 50:
+                print(f"Пропускаем сюжет '{storyline.get('title')}' из-за недостатка материала.")
+                continue
+            storyline_with_article = write_article_for_storyline(storyline)
+            if not storyline_with_article: continue
+            final_storyline = find_real_photo_on_google(storyline_with_article)
+            processed_storylines.append(final_storyline or storyline_with_article)
+    
+    # ПРОВЕРКА ДЛЯ "ПЛАНА Б": Если после всех попыток не получилось ни одной статьи, создаем общую.
+    if not processed_storylines:
+        print("Ни один из сюжетов не прошел фильтры качества. Переходим к плану Б: создание общей новостной сводки.")
         summary_storyline = write_summary_article(combined_text, main_event_query)
-        storylines = [summary_storyline] if summary_storyline else []
+        if summary_storyline:
+            final_summary = find_real_photo_on_google(summary_storyline)
+            processed_storylines.append(final_summary or summary_storyline)
 
-    if not storylines:
+    if not processed_storylines:
+        print("Не удалось сгенерировать ни одной статьи. Завершение работы.")
         if 'GITHUB_OUTPUT' in os.environ:
             with open(os.environ['GITHUB_OUTPUT'], 'a') as f: f.write('processed_storylines_json=[]\n')
         return
 
-    processed_storylines = []
+    # Обновляем память только новыми, успешно обработанными статьями
     new_memory_entries = {}
-    for storyline in storylines:
-        if not storyline or len(storyline.get("news_texts", "")) < 50:
-            print(f"Пропускаем сюжет '{storyline.get('title', 'Без названия')}' из-за недостатка материала.")
-            continue
-        
-        # Если это не сводка, а обычная статья, вызываем основной генератор
-        if storyline['title'] != "Общая сводка новостей":
-             storyline_with_article = write_article_for_storyline(storyline)
-        else: # Если это наша сводка, текст уже готов
-            storyline_with_article = storyline
-
-        if not storyline_with_article: continue
-        
-        title_for_memory = storyline_with_article['article'].split('\n', 1)[0].strip()
-        embedding = get_embedding(title_for_memory)
-        if title_for_memory and embedding:
-            new_memory_entries[title_for_memory] = embedding
-
-        final_storyline = find_real_photo_on_google(storyline_with_article)
-        processed_storylines.append(final_storyline or storyline_with_article)
+    for storyline in processed_storylines:
+        if storyline and storyline.get('article'):
+            title_for_memory = storyline['article'].split('\n', 1)[0].strip()
+            embedding = get_embedding(title_for_memory)
+            if title_for_memory and embedding:
+                new_memory_entries[title_for_memory] = embedding
     
     update_rss_file(processed_storylines)
     
