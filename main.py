@@ -400,7 +400,7 @@ async def run_rss_generator():
     processed_storylines = []
     new_memory_entries = {}
     for storyline in storylines:
-        if len(storyline.get("news_texts", "")) < 100:
+        if len(storyline.get("news_texts", "")) < 50:
             continue
         storyline_with_article = write_article_for_storyline(storyline)
         if not storyline_with_article: continue
