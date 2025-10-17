@@ -61,19 +61,6 @@ def cosine_similarity(v1, v2):
     if norm_v1 == 0 or norm_v2 == 0: return 0.0
     return dot_product / (norm_v1 * norm_v2)
 
-def _call_cloudflare_ai(model, payload, timeout=240):
-    if not CF_ACCOUNT_ID or not CF_API_TOKEN: return None
-    api_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{model}"
-    headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
-    try:
-        response = requests.post(api_url, headers=headers, json=payload, timeout=timeout)
-        response.raise_for_status()
-        return response
-    except requests.exceptions.RequestException as e:
-        print(f"Ошибка HTTP-запроса к Cloudflare API: {e}")
-        if e.response is not None: print(f"Ответ сервера ({e.response.status_code}): {e.response.text}")
-        return None
-
 def get_embedding(text):
     if not CF_ACCOUNT_ID or not CF_API_TOKEN:
         print("Ключи Cloudflare не найдены, 'умная память' отключена.")
@@ -109,6 +96,19 @@ async def get_channel_posts():
     print(f"Найдено {len(all_posts)} уникальных постов.")
     return "\n\n---\n\n".join(p['text'] for p in all_posts)
 
+def _call_cloudflare_ai(model, payload, timeout=240):
+    if not CF_ACCOUNT_ID or not CF_API_TOKEN: return None
+    api_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{model}"
+    headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
+    try:
+        response = requests.post(api_url, headers=headers, json=payload, timeout=timeout)
+        response.raise_for_status()
+        return response
+    except requests.exceptions.RequestException as e:
+        print(f"Ошибка HTTP-запроса к Cloudflare API: {e}")
+        if e.response is not None: print(f"Ответ сервера ({e.response.status_code}): {e.response.text}")
+        return None
+
 def _call_groq_ai(messages, max_tokens=2048):
     if not GROQ_API_KEY:
         print("Секрет GROQ_API_KEY не найден. Пропускаем вызов AI.")
@@ -134,20 +134,14 @@ def clean_ai_artifacts(text):
     return cleaned_text
 
 def cluster_news_into_storylines(all_news_text, memory):
-    print("Этап 1: Группировка новостей в 2 лучших сюжета...")
+    print("Этап 1: Группировка новостей и определение главной темы...")
     titles_to_exclude = "\n".join(f"- {title}" for title in memory.keys())
-    prompt = f"""[INST]Твоя задача — выступить в роли главного редактора. Проанализируй весь новостной поток ниже и найди **ДВА САМЫХ ЛУЧШИХ, наиболее проработанных и независимых сюжета** для статей.
+    prompt = f"""[INST]Твоя задача — выступить в роли главного редактора. Выполни два действия:
 
-**ВАЖНОЕ ПРАВИЛО:** Не выбирай темы, заголовки которых похожи на те, что перечислены в списке "УЖЕ ОПУБЛИКОВАННЫЕ СТАТЬИ".
+1.  **Найди ДВА лучших сюжета для статей.** Для каждого сюжета верни JSON-объект с полями: `title`, `category`, `search_queries`, `priority`, `news_texts`. Не выбирай темы, похожие на те, что в списке "УЖЕ ОПУБЛИКОВАННЫЕ СТАТЬИ".
+2.  **Определи главную тему часа.** Проанализируй ВЕСЬ новостной поток и верни ОДНУ главную персону или событие в поле `main_event_query` (на английском, для поиска фото).
 
-Для каждого из двух сюжетов верни JSON-объект с полями:
-1. `title`: Краткое рабочее название сюжета НА РУССКОМ.
-2. `category`: Категория для RSS НА РУССКОМ.
-3. `search_queries`: JSON-массив из 2-3 приоритетных запросов на АНГЛИЙСКОМ для поиска фото.
-4. `priority`: Приоритет сюжета ('high' или 'normal').
-5. `news_texts`: ПОЛНЫЙ текст всех новостей по этому сюжету.
-
-Твой ответ ДОЛЖЕН БЫТЬ ТОЛЬКО в формате JSON-массива из ДВУХ объектов, заключенного в ```json ... ```. Никакого лишнего текста.
+Твой ответ ДОЛЖЕН БЫТЬ ТОЛЬКО в формате одного JSON-объекта, содержащего два ключа: `storylines` (массив из двух сюжетов) и `main_event_query` (строка). Заключи весь JSON в ```json ... ```.
 [/INST]
 
 УЖЕ ОПУБЛИКОВАННЫЕ СТАТЬИ:
@@ -163,16 +157,15 @@ JSON:
 """
     messages = [{"role": "user", "content": prompt}]
     raw_response = _call_groq_ai(messages)
-    if not raw_response: return []
+    if not raw_response: return [], None
     try:
         match = re.search(r'```json(.*?)```', raw_response, re.DOTALL)
-        if not match: match = re.search(r'(\[.*\])', raw_response, re.DOTALL)
+        if not match: match = re.search(r'(\{.*\})', raw_response, re.DOTALL)
         if match:
             json_string = match.group(1).strip() if len(match.groups()) > 0 else match.group(0).strip()
-            if not json_string.endswith(']') and '}' in json_string:
-                last_brace_index = json_string.rfind('}')
-                if last_brace_index != -1: json_string = json_string[:last_brace_index + 1] + ']'
-            storylines = json.loads(json_string)
+            data = json.loads(json_string)
+            storylines = data.get("storylines", [])
+            main_event_query = data.get("main_event_query")
             unique_storylines = []
             for storyline in storylines:
                 title = storyline.get("title")
@@ -187,14 +180,13 @@ JSON:
                         is_duplicate = True; break
                 if not is_duplicate: unique_storylines.append(storyline)
             print(f"Найдено {len(storylines)} сюжетов, из них {len(unique_storylines)} уникальных.")
-            return unique_storylines
+            return unique_storylines, main_event_query
         else:
-            print("Не удалось найти JSON-блок в ответе модели."); return []
+            print("Не удалось найти JSON-блок в ответе модели."); return [], None
     except (json.JSONDecodeError, KeyError) as e:
-        print(f"Ошибка декодирования JSON ответа модели: {e}"); return []
+        print(f"Ошибка декодирования JSON ответа модели: {e}"); return [], None
 
 def write_article_for_storyline(storyline):
-    """Пишет статью по конкретному сюжету."""
     print(f"Этап 2: Написание статьи на тему '{storyline['title']}'...")
     prompt = f"""[INST]Ты — первоклассный спортивный журналист. Напиши захватывающую и объемную статью на РУССКОМ ЯЗЫКЕ на основе новостей ниже.
 
@@ -226,7 +218,6 @@ def write_article_for_storyline(storyline):
             break
             
     is_bad_title = len(title) > 120 or (len(title.split()) > 1 and sum(1 for word in title.split() if word and word[0].isupper()) / len(title.split()) > 0.6)
-
     if is_bad_title:
         print(f"Обнаружен плохой заголовок: '{title}'. Запрашиваем новый...")
         remake_prompt = f"Придумай короткий (5-10 слов), интригующий и понятный заголовок на русском языке для этой статьи:\n\n{cleaned_article_text}"
@@ -245,8 +236,33 @@ def write_article_for_storyline(storyline):
         
     return storyline
 
+def write_summary_article(all_news_text, main_event_query):
+    """Создает общую статью-дайджест, если не найдено уникальных сюжетов."""
+    print("План Б: Создание общей новостной сводки...")
+    storyline = {"title": "Общая сводка новостей", "category": "Дайджест", "search_queries": [main_event_query] if main_event_query else ["latest football news"], "priority": "normal", "news_texts": all_news_text}
+    prompt = f"""[INST]Ты — первоклассный спортивный журналист. Твоя задача — проанализировать весь поток новостей ниже и написать на его основе **одну общую статью-дайджест**.
+
+**ТРЕБОВАНИЯ:**
+1.  **Придумай яркий и интригующий заголовок**, который отражает САМОЕ интересное событие из всего потока. Начинай ответ сразу с этого заголовка.
+2.  В самой статье **кратко, в 2-3 предложениях, расскажи о 3-4 самых заметных новостях** (трансферы, результаты, скандалы). Текст должен быть связным, а не просто списком.
+3.  Статья должна быть на **безупречном РУССКОМ языке**.
+4.  **ЗАПРЕТЫ:** Никаких формальных подзаголовков ("Введение", "Заключение") и дисклеймеров.
+[/INST]
+
+НОВЫЙ ПОТОК НОВОСТЕЙ:
+---
+{all_news_text}
+---
+ГОТОВАЯ СТАТЬЯ-ДАЙДЖЕСТ:
+"""
+    messages = [{"role": "user", "content": prompt}]
+    raw_article_text = _call_groq_ai(messages, max_tokens=1500)
+    if raw_article_text:
+        storyline['article'] = clean_ai_artifacts(raw_article_text)
+        return storyline
+    return None
+
 def find_real_photo_on_google(storyline):
-    """Ищет реальное фото без фильтра по лицензии."""
     if not GOOGLE_API_KEY or not GOOGLE_CSE_ID: return None
     queries = storyline.get("search_queries", [])
     if not queries: return None
@@ -411,7 +427,14 @@ async def run_rss_generator():
     if len(combined_text) > 30000:
         combined_text = combined_text[:30000]
 
-    storylines = cluster_news_into_storylines(combined_text, memory)
+    storylines, main_event_query = cluster_news_into_storylines(combined_text, memory)
+    
+    # Логика "Плана Б"
+    if not storylines:
+        print("Уникальных сюжетов не найдено. Переходим к плану Б: создание общей новостной сводки.")
+        summary_storyline = write_summary_article(combined_text, main_event_query)
+        storylines = [summary_storyline] if summary_storyline else []
+
     if not storylines:
         if 'GITHUB_OUTPUT' in os.environ:
             with open(os.environ['GITHUB_OUTPUT'], 'a') as f: f.write('processed_storylines_json=[]\n')
@@ -420,11 +443,16 @@ async def run_rss_generator():
     processed_storylines = []
     new_memory_entries = {}
     for storyline in storylines:
-        if len(storyline.get("news_texts", "")) < 50:
-            print(f"Пропускаем сюжет '{storyline.get('title')}' из-за недостатка материала.")
+        if not storyline or len(storyline.get("news_texts", "")) < 50:
+            print(f"Пропускаем сюжет '{storyline.get('title', 'Без названия')}' из-за недостатка материала.")
             continue
         
-        storyline_with_article = write_article_for_storyline(storyline)
+        # Если это не сводка, а обычная статья, вызываем основной генератор
+        if storyline['title'] != "Общая сводка новостей":
+             storyline_with_article = write_article_for_storyline(storyline)
+        else: # Если это наша сводка, текст уже готов
+            storyline_with_article = storyline
+
         if not storyline_with_article: continue
         
         title_for_memory = storyline_with_article['article'].split('\n', 1)[0].strip()
