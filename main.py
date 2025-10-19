@@ -451,8 +451,9 @@ async def run_rss_generator():
             f.write(f'processed_storylines_json={storylines_json}\n')
 
 if __name__ == "__main__":
-    if len(sys.argv) > 2 and sys.argv == '--mode':
-        mode = sys.argv
+    # ⬇️⬇️⬇️ ИСПРАВЛЕНИЕ ЗДЕСЬ ⬇️⬇️⬇️
+    if len(sys.argv) > 2 and sys.argv[1] == '--mode':
+        mode = sys.argv[2]
         if mode == 'generate_rss':
             if not all(os.environ.get(key) for key in ["API_ID", "API_HASH", "SESSION_STRING"]):
                 print("Пропускаем генерацию RSS: не все секреты Telegram для парсинга доступны.")
@@ -463,4 +464,5 @@ if __name__ == "__main__":
             if storylines_json_env:
                 run_telegram_poster(storylines_json_env)
     else:
+        # Это сообщение будет видно только при локальном запуске без аргументов
         print("Режим работы не указан. Запустите с --mode generate_rss или --mode post_to_telegram.")
