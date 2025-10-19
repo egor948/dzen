@@ -36,7 +36,7 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHANNEL_USERNAME = os.environ.get("TELEGRAM_CHANNEL_USERNAME", "").strip()
 
 # ================== Модели AI и прочие настройки ==================
-TEXT_MODEL_NAME = "gemini-1.5-flash"
+TEXT_MODEL_NAME = "gemini-2.5-flash"
 EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5"
 
 RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
