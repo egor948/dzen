@@ -396,9 +396,12 @@ async def run_rss_generator():
     if not all_news_list or len(all_news_list) < 3:
         print("Новых постов для обработки недостаточно."); return
 
-    if len("\n\n---\n\n".join(all_news_list)) > 50000:
+    combined_text_for_clustering = "\n\n---\n\n".join(all_news_list)
+    if len(combined_text_for_clustering) > 40000:
         print("Слишком большой объем новостей, обрезаем.")
-        all_news_list = all_news_list[:300] # Примерная обрезка
+        # Обрезаем список, а не строку, чтобы не ломать новости
+        all_news_list = all_news_list[:300]
+        combined_text_for_clustering = "\n\n---\n\n".join(all_news_list)
 
     unique_storylines = cluster_news_into_storylines(all_news_list, memory)
     
@@ -412,7 +415,6 @@ async def run_rss_generator():
             storyline_with_article = write_article_for_storyline(storyline)
             if not storyline_with_article: continue
             
-            # Запоминаем индексы использованных новостей
             used_news_indices.update(storyline.get("news_indices", []))
             
             final_storyline = find_real_photo_on_google(storyline_with_article)
@@ -420,11 +422,20 @@ async def run_rss_generator():
     
     # Логика "Плана Б"
     print("Подготовка к созданию дайджеста...")
-    remaining_news_list = [news for i, news in enumerate(all_news_list) if i not in used_news_indices and news not in digest_memory]
+    all_news_set = set(all_news_list)
+    used_news_set = {all_news_list[i] for i in used_news_indices if i < len(all_news_list)}
+    
+    remaining_news_list = [news for news in all_news_list if news not in used_news_set and news not in digest_memory]
     
     if remaining_news_list and len("\n\n---\n\n".join(remaining_news_list)) > 100:
         remaining_news_text = "\n\n---\n\n".join(remaining_news_list)
-        main_event_query = _call_gemini_ai(f"Проанализируй эти новости и верни ОДНУ главную персону или событие на английском для поиска фото:\n\n{"\n\n---\n\n".join(all_news_list)}", max_tokens=50)
+        
+        # ⬇️⬇️⬇️ ИСПРАВЛЕНИЕ ЗДЕСЬ ⬇️⬇️⬇️
+        # Сначала готовим полный текст для промпта
+        full_text_for_prompt = "\n\n---\n\n".join(all_news_list)
+        # Затем передаем его в f-строку
+        main_event_prompt = f"Проанализируй эти новости и верни ОДНУ главную персону или событие на английском для поиска фото:\n\n{full_text_for_prompt}"
+        main_event_query = _call_gemini_ai(main_event_prompt, max_tokens=50)
         
         summary_storyline = write_summary_article(remaining_news_text, main_event_query)
         if summary_storyline:
@@ -440,10 +451,13 @@ async def run_rss_generator():
     new_memory_entries = {}
     for storyline in processed_storylines:
         if storyline and storyline.get('article'):
-            title_for_memory = storyline['article'].split('\n', 1)[0].strip()
-            embedding = get_embedding(title_for_memory)
-            if title_for_memory and embedding:
-                new_memory_entries[title_for_memory] = embedding
+            # Извлекаем заголовок безопасным способом
+            title_for_memory_match = storyline['article'].split('\n', 1)
+            if title_for_memory_match:
+                 title_for_memory = title_for_memory_match[0].strip()
+                 embedding = get_embedding(title_for_memory)
+                 if title_for_memory and embedding:
+                     new_memory_entries[title_for_memory] = embedding
     
     update_rss_file(processed_storylines)
     
