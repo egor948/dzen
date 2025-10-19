@@ -36,13 +36,13 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHANNEL_USERNAME = os.environ.get("TELEGRAM_CHANNEL_USERNAME", "").strip()
 
 # ================== Модели AI и прочие настройки ==================
-TEXT_MODEL_NAME = "gemini-2.5-flash"
+TEXT_MODEL_NAME = "gemini-1.5-flash"
 EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5"
 
 RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
 IMAGE_DIR = os.path.join(os.getcwd(), "images")
 MEMORY_FILE_PATH = os.path.join(os.getcwd(), "memory.json")
-DIGEST_MEMORY_PATH = os.path.join(os.getcwd(), "digest_memory.json") # Память для дайджестов
+DIGEST_MEMORY_PATH = os.path.join(os.getcwd(), "digest_memory.json")
 MAX_RSS_ITEMS = 30
 SIMILARITY_THRESHOLD = 0.85
 GITHUB_REPO_URL = f"https://github.com/{os.environ.get('GITHUB_REPOSITORY', '')}"
@@ -138,17 +138,16 @@ def clean_ai_artifacts(text):
 
 def cluster_news_into_storylines(all_news_text, memory):
     print("Этап 1: Группировка новостей в 2 лучших сюжета...")
-    prompt = f"""Ты — главный редактор. Проанализируй новости и найди ДВА САМЫХ ЛУЧШИХ сюжета для статей.
+    prompt = f"""Ты — главный редактор. Проанализируй новости и найди ДВА САМЫХ ЛУЧШИХ сюжета для статей, избегая тем, похожих на уже опубликованные.
 
-Для каждого сюжета верни JSON-объект с полями: `title`, `category`, `search_queries` (массив запросов на английском для фото), `news_texts` (полный текст новостей).
+Для каждого сюжета верни JSON-объект с полями: `title` (название на русском), `category` (категория на русском), `search_queries` (массив запросов на английском для фото), `news_texts` (полный текст новостей).
 
 Твой ответ ДОЛЖЕН БЫТЬ ТОЛЬКО в формате JSON-массива, заключенного в ```json ... ```.
 
 НОВЫЙ ПОТОК НОВОСТЕЙ:
 ---
 {all_news_text}
----
-```json
+---```json
 """
     raw_response = _call_gemini_ai(prompt)
     if not raw_response: return []
@@ -219,13 +218,148 @@ def write_summary_article(remaining_news, main_event_query):
     return None
 
 def find_real_photo_on_google(storyline):
-    # ... (эта функция без изменений)
+    if not GOOGLE_API_KEY or not GOOGLE_CSE_ID: return None
+    queries = storyline.get("search_queries", [])
+    if not queries: return None
+    for query in queries:
+        print(f"Этап 3 (Основной): Поиск фото в Google по запросу: '{query}'...")
+        url = "https://www.googleapis.com/customsearch/v1"
+        params = {"key": GOOGLE_API_KEY, "cx": GOOGLE_CSE_ID, "q": query, "searchType": "image", "num": 1, "imgSize": "large"}
+        try:
+            response = requests.get(url, params=params, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            if "items" in data and data["items"]:
+                image_url = data["items"]["link"]
+                if not image_url.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+                    continue
+                image_response = requests.get(image_url, timeout=60, headers={'User-Agent': 'Mozilla/5.0'})
+                image_response.raise_for_status()
+                os.makedirs(IMAGE_DIR, exist_ok=True)
+                timestamp = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+                image_filename = f"{timestamp}.jpg"
+                image_path = os.path.join(IMAGE_DIR, image_filename)
+                with open(image_path, "wb") as f: f.write(image_response.content)
+                print(f"Фото из Google успешно сохранено: {image_path}")
+                storyline['image_url'] = f"{GITHUB_REPO_URL.replace('github.com', 'raw.githubusercontent.com')}/main/images/{image_filename}"
+                return storyline
+        except requests.exceptions.RequestException as e:
+            print(f"Ошибка при обращении к Google Search API с запросом '{query}': {e}")
+            continue
+    print("В Google Images ничего не найдено.")
+    return None
 
 def update_rss_file(processed_storylines):
-    # ... (эта функция без изменений)
+    ET.register_namespace('yandex', 'http://news.yandex.ru')
+    ET.register_namespace('media', 'http://search.yahoo.com/mrss/')
+    try:
+        tree = ET.parse(RSS_FILE_PATH)
+        root = tree.getroot()
+        channel = root.find('channel')
+    except (FileNotFoundError, ET.ParseError):
+        root = ET.Element("rss", version="2.0")
+        channel = ET.SubElement(root, "channel")
+        ET.SubElement(channel, "title").text = "НА БАНКЕ"
+        ET.SubElement(channel, "link").text = GITHUB_REPO_URL
+        ET.SubElement(channel, "description").text = "«НА БАНКЕ». Все главные футбольные новости и слухи в одном месте. Трансферы, инсайды и честное мнение. Говорим о футболе так, как будто сидим с тобой на скамейке запасных."
+    
+    for storyline in reversed(processed_storylines):
+        article_text = storyline.get('article')
+        if not article_text: continue
+        
+        lines = article_text.strip().split('\n')
+        title, start_of_body_index = "", 0
+        for i, line in enumerate(lines):
+            if line.strip():
+                title = line.strip().replace("**", "").replace('"', '')
+                start_of_body_index = i + 1
+                break
+        
+        if not title:
+            print("Пропускаем статью: не удалось извлечь заголовок."); continue
+            
+        full_text = '\n'.join(lines[start_of_body_index:]).strip()
+        if len(full_text.split()) < 30:
+            print(f"Пропускаем статью '{title}': основной текст слишком короткий."); continue
+
+        item = ET.Element("item")
+        ET.SubElement(item, "title").text = title
+        ET.SubElement(item, "link").text = GITHUB_REPO_URL
+        ET.SubElement(item, "category").text = storyline.get('category', 'Общее')
+        yandex_full_text = ET.SubElement(item, "{http://news.yandex.ru}full-text")
+        yandex_full_text.text = full_text
+        if storyline.get('image_url'):
+            image_type = 'image/jpeg' if '.jpg' in storyline['image_url'] else 'image/png'
+            enclosure = ET.SubElement(item, "enclosure")
+            enclosure.set('url', storyline['image_url'])
+            enclosure.set('type', image_type)
+        ET.SubElement(item, "pubDate").text = datetime.datetime.now(datetime.timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
+        ET.SubElement(item, "guid", isPermaLink="false").text = str(hash(title))
+        channel.insert(3, item)
+
+    items = channel.findall('item')
+    if len(items) > MAX_RSS_ITEMS:
+        print(f"В RSS стало {len(items)} статей. Удаляем старые...")
+        for old_item in items[MAX_RSS_ITEMS:]:
+            enclosure = old_item.find('enclosure')
+            if enclosure is not None and enclosure.get('url'):
+                try:
+                    image_filename = os.path.basename(enclosure.get('url'))
+                    image_path = os.path.join(IMAGE_DIR, image_filename)
+                    if os.path.exists(image_path):
+                        os.remove(image_path)
+                        print(f"Удаляем старое изображение: {image_filename}")
+                except Exception as e:
+                    print(f"Не удалось удалить изображение {image_filename}: {e}")
+            channel.remove(old_item)
+
+    xml_string = ET.tostring(root, 'utf-8')
+    pretty_xml = minidom.parseString(xml_string).toprettyxml(indent="  ")
+    with open(RSS_FILE_PATH, "w", encoding="utf-8") as f:
+        f.write(pretty_xml)
+    
+    current_items = channel.findall('item')
+    print(f"✅ RSS-лента успешно обновлена. Теперь в ней {len(current_items)} статей.")
 
 def run_telegram_poster(storylines_json):
-    # ... (эта функция без изменений)
+    """Читает JSON и отправляет посты в Telegram."""
+    print("Запуск публикации в Telegram...")
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHANNEL_USERNAME: return
+    try:
+        storylines = json.loads(storylines_json)
+    except json.JSONDecodeError: return
+
+    for storyline in storylines:
+        article_text = storyline.get('article')
+        if not article_text: continue
+        
+        lines = article_text.strip().split('\n')
+        title, start_of_body_index = "", 0
+        for i, line in enumerate(lines):
+            if line.strip():
+                title = line.strip().replace("**", "").replace('"', '')
+                start_of_body_index = i + 1
+                break
+        
+        if not title: continue
+        full_text = '\n'.join(lines[start_of_body_index:]).strip()
+
+        if len(full_text.split()) < 30:
+            print(f"Пропускаем отправку в Telegram статьи '{title}': основной текст слишком короткий.")
+            continue
+        
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        text = f"<b>{title}</b>\n\n{full_text}"
+        if len(text) > 4096: text = text[:4093] + "..."
+        payload = { 'chat_id': f"@{TELEGRAM_CHANNEL_USERNAME}", 'text': text, 'parse_mode': 'HTML' }
+            
+        try:
+            response = requests.post(url, json=payload, timeout=60)
+            response.raise_for_status()
+            print(f"✅ Статья '{title}' успешно опубликована в Telegram.")
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Ошибка публикации статьи '{title}' в Telegram: {e}")
+            if e.response is not None: print(f"Ответ сервера Telegram: {e.response.text}")
 
 async def run_rss_generator():
     """Основная логика генерации RSS и изображений."""
@@ -236,7 +370,7 @@ async def run_rss_generator():
             print(f"Загружено {len(memory)} заголовков из памяти.")
     except (FileNotFoundError, json.JSONDecodeError):
         print("Файл памяти не найден или пуст.")
-        
+
     digest_memory = []
     try:
         if os.path.exists(DIGEST_MEMORY_PATH):
@@ -254,7 +388,7 @@ async def run_rss_generator():
     unique_storylines = cluster_news_into_storylines(combined_text, memory)
     
     processed_storylines = []
-    used_news_for_digest = []
+    used_news_for_digest = set()
     if unique_storylines:
         print(f"Начинаем обработку {len(unique_storylines)} уникальных сюжетов...")
         for storyline in unique_storylines:
@@ -264,7 +398,7 @@ async def run_rss_generator():
             storyline_with_article = write_article_for_storyline(storyline)
             if not storyline_with_article: continue
             
-            used_news_for_digest.extend(storyline.get("news_texts", "").split("\n\n---\n\n"))
+            used_news_for_digest.update(storyline.get("news_texts", "").split("\n\n---\n\n"))
             final_storyline = find_real_photo_on_google(storyline_with_article)
             processed_storylines.append(final_storyline or storyline_with_article)
     
@@ -275,14 +409,12 @@ async def run_rss_generator():
     
     if remaining_news_list and len("\n\n---\n\n".join(remaining_news_list)) > 100:
         remaining_news_text = "\n\n---\n\n".join(remaining_news_list)
-        # Главную тему ищем по всем новостям, а не по остаткам
         main_event_query = _call_gemini_ai(f"Проанализируй эти новости и верни ОДНУ главную персону или событие на английском для поиска фото:\n\n{combined_text}", max_tokens=20)
         
         summary_storyline = write_summary_article(remaining_news_text, main_event_query)
         if summary_storyline:
             final_summary = find_real_photo_on_google(summary_storyline)
             processed_storylines.append(final_summary or summary_storyline)
-            # Обновляем память дайджестов
             digest_memory.extend(remaining_news_list)
     else:
         print("Недостаточно новых новостей для создания дайджеста.")
@@ -290,7 +422,6 @@ async def run_rss_generator():
     if not processed_storylines:
         print("Не удалось сгенерировать ни одной статьи."); return
 
-    # Обновляем память заголовков
     new_memory_entries = {}
     for storyline in processed_storylines:
         if storyline and storyline.get('article'):
@@ -309,9 +440,7 @@ async def run_rss_generator():
         json.dump(memory, f, ensure_ascii=False, indent=2)
     print(f"Память заголовков обновлена. Теперь в ней {len(memory)} записей.")
 
-    # Обновляем память дайджестов
-    if len(digest_memory) > 500: # Храним ~500 последних новостей из дайджестов
-        digest_memory = digest_memory[-400:]
+    if len(digest_memory) > 500: digest_memory = digest_memory[-400:]
     with open(DIGEST_MEMORY_PATH, 'w', encoding='utf-8') as f:
         json.dump(digest_memory, f, ensure_ascii=False)
     print(f"Память дайджестов обновлена. Теперь в ней {len(digest_memory)} новостей.")
