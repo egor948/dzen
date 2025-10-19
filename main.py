@@ -115,21 +115,17 @@ async def get_channel_posts():
     return "\n\n---\n\n".join(p['text'] for p in all_posts)
 
 def _call_gemini_ai(prompt, max_tokens=2048):
-    """Универсальная функция для вызова API Gemini."""
     if not GEMINI_API_KEY:
         print("Секрет GEMINI_API_KEY не найден. Пропускаем вызов AI.")
         return None
     try:
         model = genai.GenerativeModel(TEXT_MODEL_NAME)
-        
-        # ⬇️⬇️⬇️ ПОЛНОСТЬЮ ОТКЛЮЧАЕМ ФИЛЬТРЫ БЕЗОПАСНОСТИ ⬇️⬇️⬇️
         safety_settings = {
             'HARM_CATEGORY_HARASSMENT': 'BLOCK_NONE',
             'HARM_CATEGORY_HATE_SPEECH': 'BLOCK_NONE',
             'HARM_CATEGORY_SEXUALLY_EXPLICIT': 'BLOCK_NONE',
             'HARM_CATEGORY_DANGEROUS_CONTENT': 'BLOCK_NONE',
         }
-
         response = model.generate_content(
             prompt,
             generation_config=genai.types.GenerationConfig(
@@ -138,16 +134,14 @@ def _call_gemini_ai(prompt, max_tokens=2048):
             ),
             safety_settings=safety_settings
         )
-        # Добавляем проверку, что ответ не пустой, на всякий случай
         if response.parts:
             return response.text
         else:
-            print(f"Gemini вернул пустой ответ. Причина остановки: {response.candidates[0].finish_reason.name}")
+            print(f"Gemini вернул пустой ответ. Причина остановки: {response.candidates[0].finish_reason.name if response.candidates else 'Неизвестно'}")
             return None
-
     except Exception as e:
         print(f"Ошибка при обращении к Gemini API: {e}")
-        ret
+        return None
 
 def clean_ai_artifacts(text):
     lines = text.split('\n')
@@ -163,7 +157,7 @@ def cluster_news_into_storylines(all_news_text, memory):
     print("Этап 1: Группировка новостей в 2 лучших сюжета...")
     prompt = f"""Ты — главный редактор. Проанализируй новости и найди ДВА САМЫХ ЛУЧШИХ сюжета для статей, избегая тем, похожих на уже опубликованные.
 
-Для каждого сюжета верни JSON-объект с полями: `title` (название на русском), `category` (категория на русском), `search_queries` (массив запросов на английском для фото), `news_texts` (полный текст новостей).
+Для каждого сюжета верни JSON-объект с полями: `title`, `category`, `search_queries`, `news_texts`.
 
 Твой ответ ДОЛЖЕН БЫТЬ ТОЛЬКО в формате JSON-массива, заключенного в ```json ... ```.
 
@@ -172,7 +166,7 @@ def cluster_news_into_storylines(all_news_text, memory):
 {all_news_text}
 ---```json
 """
-    raw_response = _call_gemini_ai(prompt)
+    raw_response = _call_gemini_ai(prompt, max_tokens=3000) # ⬅️ Увеличен лимит
     if not raw_response: return []
     try:
         match = re.search(r'```json(.*?)```', raw_response, re.DOTALL)
@@ -253,6 +247,7 @@ def find_real_photo_on_google(storyline):
             response.raise_for_status()
             data = response.json()
             if "items" in data and data["items"]:
+                # ⬇️⬇️⬇️ ИСПРАВЛЕНИЕ ОШИБКИ TypeError ⬇️⬇️⬇️
                 image_url = data["items"]["link"]
                 if not image_url.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
                     continue
@@ -432,7 +427,8 @@ async def run_rss_generator():
     
     if remaining_news_list and len("\n\n---\n\n".join(remaining_news_list)) > 100:
         remaining_news_text = "\n\n---\n\n".join(remaining_news_list)
-        main_event_query = _call_gemini_ai(f"Проанализируй эти новости и верни ОДНУ главную персону или событие на английском для поиска фото:\n\n{combined_text}", max_tokens=20)
+        # ⬅️ Увеличен лимит
+        main_event_query = _call_gemini_ai(f"Проанализируй эти новости и верни ОДНУ главную персону или событие на английском для поиска фото:\n\n{combined_text}", max_tokens=50)
         
         summary_storyline = write_summary_article(remaining_news_text, main_event_query)
         if summary_storyline:
@@ -474,9 +470,8 @@ async def run_rss_generator():
             f.write(f'processed_storylines_json={storylines_json}\n')
 
 if __name__ == "__main__":
-    # ⬇️⬇️⬇️ ИСПРАВЛЕНИЕ ЗДЕСЬ ⬇️⬇️⬇️
-    if len(sys.argv) > 2 and sys.argv[1] == '--mode':
-        mode = sys.argv[2]
+    if len(sys.argv) > 2 and sys.argv == '--mode':
+        mode = sys.argv
         if mode == 'generate_rss':
             if not all(os.environ.get(key) for key in ["API_ID", "API_HASH", "SESSION_STRING"]):
                 print("Пропускаем генерацию RSS: не все секреты Telegram для парсинга доступны.")
@@ -487,5 +482,4 @@ if __name__ == "__main__":
             if storylines_json_env:
                 run_telegram_poster(storylines_json_env)
     else:
-        # Это сообщение будет видно только при локальном запуске без аргументов
         print("Режим работы не указан. Запустите с --mode generate_rss или --mode post_to_telegram.")
