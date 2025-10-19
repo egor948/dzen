@@ -115,16 +115,39 @@ async def get_channel_posts():
     return "\n\n---\n\n".join(p['text'] for p in all_posts)
 
 def _call_gemini_ai(prompt, max_tokens=2048):
+    """Универсальная функция для вызова API Gemini."""
     if not GEMINI_API_KEY:
         print("Секрет GEMINI_API_KEY не найден. Пропускаем вызов AI.")
         return None
     try:
         model = genai.GenerativeModel(TEXT_MODEL_NAME)
-        response = model.generate_content(prompt, generation_config=genai.types.GenerationConfig(max_output_tokens=max_tokens, temperature=0.7))
-        return response.text
+        
+        # ⬇️⬇️⬇️ ПОЛНОСТЬЮ ОТКЛЮЧАЕМ ФИЛЬТРЫ БЕЗОПАСНОСТИ ⬇️⬇️⬇️
+        safety_settings = {
+            'HARM_CATEGORY_HARASSMENT': 'BLOCK_NONE',
+            'HARM_CATEGORY_HATE_SPEECH': 'BLOCK_NONE',
+            'HARM_CATEGORY_SEXUALLY_EXPLICIT': 'BLOCK_NONE',
+            'HARM_CATEGORY_DANGEROUS_CONTENT': 'BLOCK_NONE',
+        }
+
+        response = model.generate_content(
+            prompt,
+            generation_config=genai.types.GenerationConfig(
+                max_output_tokens=max_tokens,
+                temperature=0.7
+            ),
+            safety_settings=safety_settings
+        )
+        # Добавляем проверку, что ответ не пустой, на всякий случай
+        if response.parts:
+            return response.text
+        else:
+            print(f"Gemini вернул пустой ответ. Причина остановки: {response.candidates[0].finish_reason.name}")
+            return None
+
     except Exception as e:
         print(f"Ошибка при обращении к Gemini API: {e}")
-        return None
+        ret
 
 def clean_ai_artifacts(text):
     lines = text.split('\n')
