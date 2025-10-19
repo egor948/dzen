@@ -424,7 +424,7 @@ async def run_rss_generator():
     
     if remaining_news_list and len("\n\n---\n\n".join(remaining_news_list)) > 100:
         remaining_news_text = "\n\n---\n\n".join(remaining_news_list)
-        main_event_query = _call_gemini_ai(f"Проанализируй эти новости и верни ОДНУ главную персону или событие на английском для поиска фото:\n\n{combined_text}", max_tokens=50)
+        main_event_query = _call_gemini_ai(f"Проанализируй эти новости и верни ОДНУ главную персону или событие на английском для поиска фото:\n\n{"\n\n---\n\n".join(all_news_list)}", max_tokens=50)
         
         summary_storyline = write_summary_article(remaining_news_text, main_event_query)
         if summary_storyline:
