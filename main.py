@@ -205,7 +205,7 @@ def cluster_news_into_storylines(all_news_list, memory):
         print(f"Ошибка декодирования JSON ответа модели: {e}")
         if 'raw_response' in locals():
             print("Сырой ответ от модели:", raw_response)
-        return []```
+        return []
 
 def write_article_for_storyline(storyline):
     """Пишет статью по конкретному сюжету."""
