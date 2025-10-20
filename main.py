@@ -492,16 +492,20 @@ async def run_rss_generator():
     
     if not processed_storylines:
         print("Ни один из сюжетов не прошел фильтры. Переходим к плану Б: создание общей новостной сводки.")
-        remaining_news_list = [news for news in all_news_list if news not in if remaining_news_list:
+        
+        # ⬇️⬇️⬇️ ИСПРАВЛЕНИЕ ЗДЕСЬ ⬇️⬇️⬇️
+        remaining_news_list = [news for news in all_news_list if news not in digest_memory_for_check]
+        
+        if remaining_news_list:
             remaining_news_text = "\n\n---\n\n".join(remaining_news_list)
             
-            # ⬇️⬇️⬇️ ИСПРАВЛЕНИЕ ЗДЕСЬ ⬇️⬇️⬇️
             # Сначала готовим текст для промпта
             news_sample_for_prompt = '\n'.join(all_news_list[:20])
             # Затем безопасно вставляем его в f-строку
             main_event_prompt = f"Проанализируй эти новости и верни ОДНУ главную персону или событие на английском для поиска фото:\n\n{news_sample_for_prompt}"
             
             main_event_query_response = _call_gemini_ai(main_event_prompt, max_tokens=100)
+            # ... (далее по коду)
             main_event_query = main_event_query_response.strip() if main_event_query_response else "latest football news"
             
             summary_storyline = write_summary_article(remaining_news_text, main_event_query)
