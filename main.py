@@ -427,17 +427,15 @@ def run_telegram_poster(storylines_json):
 
 async def run_rss_generator():
     """Основная логика генерации RSS и изображений."""
-    
-    # ⬇️⬇️⬇️ НАЧАЛО НОВОЙ ЛОГИКИ ЗАГРУЗКИ И ОБРЕЗКИ "ПАМЯТИ" ⬇️⬇️⬇️
     memory = {}
     try:
         if os.path.exists(MEMORY_FILE_PATH):
             with open(MEMORY_FILE_PATH, 'r', encoding='utf-8') as f:
                 memory = json.load(f)
-            print(f"Загружено {len(memory)} записей из памяти заголовков.")
+            print(f"Загружено {len(memory)} заголовков из памяти.")
     except (FileNotFoundError, json.JSONDecodeError):
-        print("Файл памяти заголовков не найден или пуст.")
-
+        print("Файл памяти не найден или пуст.")
+    
     digest_memory = []
     try:
         if os.path.exists(DIGEST_MEMORY_PATH):
@@ -450,12 +448,11 @@ async def run_rss_generator():
     # Обрезаем память, которую будем передавать в промпт
     memory_for_prompt = dict(list(memory.items())[-30:])
     digest_memory_for_check = digest_memory[-30:]
-    
-    # ⬆️⬆️⬆️ КОНЕЦ НОВОЙ ЛОГИКИ ⬆️⬆️⬆️
 
     all_news_list = await get_channel_posts()
     if not all_news_list or len(all_news_list) < 3:
-        print("Новых постов для обработки недостаточно."); return
+        print("Новых постов для обработки недостаточно.")
+        return
 
     if len("\n\n---\n\n".join(all_news_list)) > 50000:
         print("Слишком большой объем новостей, обрезаем.")
@@ -465,20 +462,28 @@ async def run_rss_generator():
     
     processed_storylines = []
     used_news_indices = set()
+    
     if unique_storylines:
         print(f"Начинаем обработку {len(unique_storylines)} уникальных сюжетов...")
         for storyline in unique_storylines:
             if len(processed_storylines) >= 5:
                 print("Уже набрано 5 статей, прекращаем обработку сюжетов.")
                 break
+
             if len(storyline.get("news_texts", "")) < 50:
+                print(f"Пропускаем сюжет '{storyline.get('title')}' (слишком мало материала).")
                 continue
+            
             storyline_with_article = write_article_for_storyline(storyline)
             if not storyline_with_article: continue
             
-            full_text = storyline_with_article['article'].split('\n', 1)[1] if '\n' in storyline_with_article['article'] else ""
-            if len(full_text.split()) < 30:
-                print(f"Пропускаем статью '{storyline_with_article['article'].split('\n', 1)[0]}': сгенерированный текст слишком короткий.")
+            # ⬇️⬇️⬇️ ИСПРАВЛЕНИЕ ЗДЕСЬ ⬇️⬇️⬇️
+            article_parts = storyline_with_article['article'].split('\n', 1)
+            title_part = article_parts[0]
+            full_text_part = article_parts[1] if len(article_parts) > 1 else ""
+
+            if len(full_text_part.split()) < 30:
+                print(f"Пропускаем статью '{title_part}': сгенерированный текст слишком короткий.")
                 continue
 
             used_news_indices.update(storyline.get("news_indices", []))
@@ -490,6 +495,7 @@ async def run_rss_generator():
         remaining_news_list = [news for news in all_news_list if news not in digest_memory_for_check]
         if remaining_news_list:
             remaining_news_text = "\n\n---\n\n".join(remaining_news_list)
+            
             main_event_prompt = f"Проанализируй эти новости и верни ОДНУ главную персону или событие на английском для поиска фото:\n\n{'\n'.join(all_news_list[:20])}"
             main_event_query_response = _call_gemini_ai(main_event_prompt, max_tokens=100)
             main_event_query = main_event_query_response.strip() if main_event_query_response else "latest football news"
@@ -498,13 +504,15 @@ async def run_rss_generator():
             if summary_storyline:
                 final_summary = find_real_photo_on_google(summary_storyline)
                 processed_storylines.append(final_summary or summary_storyline)
-                # Добавляем использованные в дайджесте новости в полную память
                 digest_memory.extend(remaining_news_list)
         else:
             print("Недостаточно новых новостей для создания дайджеста.")
 
     if not processed_storylines:
-        print("Не удалось сгенерировать ни одной статьи. Завершение работы."); return
+        print("Не удалось сгенерировать ни одной статьи. Завершение работы.")
+        if 'GITHUB_OUTPUT' in os.environ:
+            with open(os.environ['GITHUB_OUTPUT'], 'a') as f: f.write('processed_storylines_json=[]\n')
+        return
 
     new_memory_entries = {}
     for storyline in processed_storylines:
@@ -518,7 +526,6 @@ async def run_rss_generator():
     
     update_rss_file(processed_storylines)
     
-    # Обновляем и обрезаем полные файлы памяти
     memory.update(new_memory_entries)
     if len(memory) > 200:
         print(f"Память заголовков слишком велика ({len(memory)}), обрезаем до 150.")
