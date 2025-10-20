@@ -14,6 +14,7 @@ import sys
 import google.generativeai as genai
 
 # ================= НАСТРОЙКИ =================
+# Telegram-парсер инициализируется по необходимости.
 CHANNELS_LIST = [
     "breakevens", "spurstg", "bluecityzens", "manutd_one", "lexusarsenal", "sixELCE", "astonvillago",
     "tg_barca", "ZZoneRM", "psgdot", "FcMilanItaly", "Vstakane", "LaligaOfficial_rus", "SportEPL", "tg_epl",
@@ -35,23 +36,22 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHANNEL_USERNAME = os.environ.get("TELEGRAM_CHANNEL_USERNAME", "").strip()
 
 # ================== Модели AI и прочие настройки ==================
-TEXT_MODEL_NAME = "gemini-2.5-flash"
+TEXT_MODEL_NAME = "gemini-1.5-flash"
 EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5"
 
-NEWS_MEMORY_PATH = os.path.join(os.getcwd(), "news_memory.json") # ⬅️ НОВАЯ СТРОКА
 RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
 IMAGE_DIR = os.path.join(os.getcwd(), "images")
 MEMORY_FILE_PATH = os.path.join(os.getcwd(), "memory.json")
 DIGEST_MEMORY_PATH = os.path.join(os.getcwd(), "digest_memory.json")
+NEWS_MEMORY_PATH = os.path.join(os.getcwd(), "news_memory.json")
 MAX_RSS_ITEMS = 30
-SIMILARITY_THRESHOLD = 0.85
+SIMILARITY_THRESHOLD = 0.88
 GITHUB_REPO_URL = f"https://github.com/{os.environ.get('GITHUB_REPOSITORY', '')}"
 BANNED_PHRASES = [
-    "вступление", "конец", "приложение:", "источники:", "из автора:", "дополнительные комментарии:",
-    "заключение", "вывод:", "выводы:", "примечание:", "содержание:", "анализ:", "история:", "оценка:", "итог:", "перспективы:",
-    "история развития событий:", "раскрытие деталей:", "резюме:", "призыв к действию:",
-    "точная информация:", "голубая волна в милане", "право на выбор", "ставка на судзуки",
-    "конclusion:", "продолжение:", "статья:", "готовая статья:"
+    "вступление", "конец", "приложение:", "источники:", "из автора:", "дополнительные комментарии:", "заключение",
+    "вывод:", "выводы:", "примечание:", "содержание:", "анализ:", "история:", "оценка:", "итог:", "перспективы:",
+    "история развития событий:", "раскрытие деталей:", "резюме:", "призыв к действию:", "точная информация:",
+    "голубая волна в милане", "право на выбор", "ставка на судзуки", "конclusion:", "продолжение:", "статья:", "готовая статья:"
 ]
 
 if GEMINI_API_KEY:
@@ -79,7 +79,9 @@ def _call_cloudflare_ai(model, payload, timeout=240):
         return None
 
 def get_embedding(text):
-    if not CF_ACCOUNT_ID or not CF_API_TOKEN: return None
+    if not CF_ACCOUNT_ID or not CF_API_TOKEN:
+        print("Ключи Cloudflare не найдены, 'умная память' отключена.")
+        return None
     response = _call_cloudflare_ai(EMBEDDING_MODEL, {"text": [text]})
     if response:
         try:
@@ -87,20 +89,17 @@ def get_embedding(text):
         except (KeyError, IndexError): return None
     return None
 
-async def get_channel_posts(news_memory):
-    """Собирает новости за последний час, фильтруя смысловые дубли."""
+async def get_channel_posts():
     API_ID = os.environ.get("API_ID")
     API_HASH = os.environ.get("API_HASH")
     SESSION_STRING = os.environ.get("SESSION_STRING")
     if not API_ID or not API_HASH or not SESSION_STRING:
         raise ValueError("Секреты Telegram для парсинга не найдены!")
     client = TelegramClient(StringSession(SESSION_STRING), int(API_ID), API_HASH)
-    
     candidate_posts = []
     unique_texts = set()
     now = datetime.datetime.now(datetime.timezone.utc)
     cutoff = now - timedelta(hours=1)
-    
     async with client:
         for channel_name in CHANNELS:
             print(f"Парсинг канала: {channel_name}...")
@@ -112,49 +111,38 @@ async def get_channel_posts(news_memory):
                         candidate_posts.append(msg.text.strip())
             except Exception as e:
                 print(f"Не удалось получить посты из канала '{channel_name}': {e}")
+    print(f"Найдено {len(candidate_posts)} постов-кандидатов.")
+    return candidate_posts
 
-    print(f"Найдено {len(candidate_posts)} постов-кандидатов. Начинаем фильтрацию дублей...")
-    
+async def filter_unique_posts(candidate_posts, news_memory):
+    print("Начинаем фильтрацию смысловых дублей...")
     unique_posts = []
-    # Превращаем старые векторы в список для быстрого доступа
     old_embeddings = list(news_memory.values())
-    
     for post_text in candidate_posts:
+        if len(post_text) < 40: continue
         post_embedding = get_embedding(post_text)
-        if not post_embedding: # Если не удалось получить вектор, на всякий случай пропускаем пост
+        if not post_embedding:
             unique_posts.append(post_text)
             continue
-        
         is_duplicate = False
         for old_embedding in old_embeddings:
             if cosine_similarity(post_embedding, old_embedding) > SIMILARITY_THRESHOLD:
                 is_duplicate = True
                 break
-        
         if not is_duplicate:
             unique_posts.append(post_text)
-            # Сразу добавляем новый уникальный пост в "память" для проверки следующих кандидатов из этого же запуска
             news_memory[post_text] = post_embedding
             old_embeddings.append(post_embedding)
-
     print(f"После фильтрации осталось {len(unique_posts)} уникальных постов.")
     return unique_posts
+
 def _call_gemini_ai(prompt, max_tokens=2048, use_json_mode=False):
     if not GEMINI_API_KEY:
-        print("Секрет GEMINI_API_KEY не найден. Пропускаем вызов AI.")
-        return None
+        print("Секрет GEMINI_API_KEY не найден."); return None
     try:
         model = genai.GenerativeModel(TEXT_MODEL_NAME)
-        safety_settings = {
-            'HARM_CATEGORY_HARASSMENT': 'BLOCK_NONE', 'HARM_CATEGORY_HATE_SPEECH': 'BLOCK_NONE',
-            'HARM_CATEGORY_SEXUALLY_EXPLICIT': 'BLOCK_NONE', 'HARM_CATEGORY_DANGEROUS_CONTENT': 'BLOCK_NONE',
-        }
-        generation_config = genai.types.GenerationConfig(
-            max_output_tokens=max_tokens,
-            temperature=0.7,
-            # ⬇️⬇️⬇️ ВКЛЮЧАЕМ JSON MODE ⬇️⬇️⬇️
-            response_mime_type="application/json" if use_json_mode else "text/plain"
-        )
+        safety_settings = {'HARM_CATEGORY_HARASSMENT': 'BLOCK_NONE', 'HARM_CATEGORY_HATE_SPEECH': 'BLOCK_NONE', 'HARM_CATEGORY_SEXUALLY_EXPLICIT': 'BLOCK_NONE', 'HARM_CATEGORY_DANGEROUS_CONTENT': 'BLOCK_NONE'}
+        generation_config = genai.types.GenerationConfig(max_output_tokens=max_tokens, temperature=0.7, response_mime_type="application/json" if use_json_mode else "text/plain")
         response = model.generate_content(prompt, generation_config=generation_config, safety_settings=safety_settings)
         if response.parts:
             return response.text
@@ -162,55 +150,39 @@ def _call_gemini_ai(prompt, max_tokens=2048, use_json_mode=False):
             print(f"Gemini вернул пустой ответ. Причина: {response.candidates[0].finish_reason.name if response.candidates else 'Неизвестно'}")
             return None
     except Exception as e:
-        print(f"Ошибка при обращении к Gemini API: {e}")
-        return None
+        print(f"Ошибка при обращении к Gemini API: {e}"); return None
 
 def clean_ai_artifacts(text):
+    text = re.sub(r'^\s*#+\s*', '', text, flags=re.MULTILINE)
     lines = text.split('\n')
-    cleaned_lines = []
-    for line in lines:
-        test_line = line.lower().strip().replace('*', '').replace(':', '')
-        if not any(test_line.startswith(phrase) for phrase in BANNED_PHRASES):
-            cleaned_lines.append(line)
+    cleaned_lines = [line for line in lines if not any(line.lower().strip().replace('*', '').replace(':', '') == phrase for phrase in BANNED_PHRASES)]
     cleaned_text = '\n'.join(cleaned_lines).strip()
     return cleaned_text
 
-def cluster_news_into_storylines(all_news_list, memory):
-    """Группирует новости в потенциальные сюжеты для статей, возвращая индексы."""
-    print("Этап 1: Группировка новостей в сюжеты...")
-    
-    numbered_news = "\n\n---\n\n".join([f"Новость #{i}:\n{news}" for i, news in enumerate(all_news_list)])
-
-    # ⬇️⬇️⬇️ ВОЗВРАЩАЕМ ПРОМПТ С ДВУМЯ ЗАДАЧАМИ ⬇️⬇️⬇️
-    prompt = f"""Ты — главный редактор. Проанализируй пронумерованные новости ниже и выполни два действия:
-
-1.  **Найди КАК МОЖНО БОЛЬШЕ** качественных сюжетов для статей (до 10 штук). Для каждого сюжета верни JSON-объект с полями: `title`, `category`, `search_queries` и `news_indices`.
-2.  **Определи главную тему часа.** Проанализируй ВЕСЬ новостной поток и верни ОДНУ главную персону или событие в поле `main_event_query` (на английском).
-
-Твой ответ ДОЛЖЕН БЫТЬ ТОЛЬКО в формате одного JSON-объекта с ключами `storylines` и `main_event_query`.
-
+async def cluster_news_into_storylines(news_batch, memory):
+    print(f"Группируем {len(news_batch)} новостей в сюжеты...")
+    numbered_news = "\n\n---\n\n".join([f"Новость #{i}:\n{news}" for i, news in enumerate(news_batch)])
+    prompt = f"""Ты — главный редактор. Проанализируй пронумерованные новости ниже.
+Найди столько уникальных сюжетов, сколько сможешь (но не более пяти).
+Для каждого сюжета верни JSON-объект с полями: `title`, `category`, `search_queries`, `news_indices`.
+Твой ответ ДОЛЖЕН БЫТЬ ТОЛЬКО в формате JSON-массива.
 ПРОНУМЕРОВАННЫЕ НОВОСТИ:
 ---
 {numbered_news}
 ---
 """
-    raw_response = _call_gemini_ai(prompt, use_json_mode=True, max_tokens=4096)
+    raw_response = _call_gemini_ai(prompt, use_json_mode=True, max_tokens=8192)
     if not raw_response: return [], None
-    
     try:
-        # ⬇️⬇️⬇️ ИСПРАВЛЕННАЯ ЛОГИКА ПАРСИНГА И ВОЗВРАТА ⬇️⬇️⬇️
         data = json.loads(raw_response)
-        
         storylines_with_indices = data.get("storylines", [])
-        main_event_query = data.get("main_event_query") # Извлекаем главную тему
-        
+        main_event_query = data.get("main_event_query")
         storylines = []
         for storyline in storylines_with_indices:
             indices = storyline.get("news_indices", [])
-            news_texts = "\n\n---\n\n".join([all_news_list[i] for i in indices if i < len(all_news_list)])
+            news_texts = "\n\n---\n\n".join([news_batch[i] for i in indices if i < len(news_batch)])
             storyline['news_texts'] = news_texts
             storylines.append(storyline)
-            
         unique_storylines = []
         for storyline in storylines:
             title = storyline.get("title")
@@ -224,85 +196,62 @@ def cluster_news_into_storylines(all_news_list, memory):
                 if cosine_similarity(title_embedding, old_embedding) > SIMILARITY_THRESHOLD:
                     is_duplicate = True; break
             if not is_duplicate: unique_storylines.append(storyline)
-            
         print(f"Найдено {len(storylines)} сюжетов, из них {len(unique_storylines)} уникальных.")
-        # Всегда возвращаем два значения
         return unique_storylines, main_event_query
-
     except (json.JSONDecodeError, KeyError) as e:
-        print(f"Ошибка декодирования JSON ответа модели: {e}")
-        if 'raw_response' in locals():
-            print("Сырой ответ от модели:", raw_response)
-        # Всегда возвращаем два значения
-        return [], None
-        
+        print(f"Ошибка декодирования JSON: {e}"); return [], None
+
 def write_article_for_storyline(storyline):
-    """Пишет статью по конкретному сюжету."""
     print(f"Этап 2: Написание статьи на тему '{storyline['title']}'...")
+    prompt = f"""Ты — первоклассный спортивный журналист. Напиши захватывающую, фактически точную и объемную статью на РУССКОМ ЯЗЫКЕ на основе новостей ниже.
 
-    # ⬇️⬇️⬇️ НАЧАЛО НОВОГО, ФИНАЛЬНОГО ПРОМПТА ⬇️⬇️⬇️
-    prompt = f"""**Роль:**
-Ты — опытный контент-маркетолог и редактор Дзен-канала "НА БАНКЕ". Твоя задача — взять сухие новостные сводки и превратить их в "воздушный", динамичный и вирусный текст, который читатели досмотрят до конца.
-
-**Главные правила:**
-1.  **Пиши только на безупречном РУССКОМ языке.**
-2.  **Основывайся СТРОГО на фактах из предоставленных новостей.** Не выдумывай детали.
-
-**ТРЕБОВАНИЯ К ТЕКСТУ:**
-
-**1. Заголовок:**
-*   Твой ответ должен начинаться СРАЗУ с заголовка.
-*   Заголовок должен быть коротким (5-12 слов), интригующим и кликабельным.
-
-**2. Структура и Форматирование (используй HTML-теги):**
-*   **Короткие абзацы:** Каждый абзац — это 1-3 коротких, ударных предложения. Никаких "стен текста".
-*   **Подзаголовки:** Используй 2-3 интригующих подзаголовка, чтобы разбить текст. Оберни их в теги `<b>` и `</b>`. **Пример:** `<b>Что теперь будет с тренером?</b>`
-*   **Выделение:** Выделяй ключевые мысли, имена и цифры жирным шрифтом. Используй теги `<b>` и `</b>` (2-3 выделения на статью). **Пример:** `Контракт подписан на <b>5 лет</b>.`
-*   **Списки:** Если есть перечисления, оформляй их как маркированный список, используя символ `•` в начале каждой строки.
-
-**3. Стиль:**
-*   **"Крючок" в начале:** Первый абзац должен быть самым мощным. Начни с самой шокирующей или интригующей детали.
-*   **Без "воды":** Убирай все лишние слова и конструкции, которые замедляют чтение.
-*   **Динамика:** Используй простой, разговорный язык и активный залог.
-
-**ЗАПРЕТЫ:**
-*   **НИКОГДА** не используй формальные подзаголовки ("Введение", "Заключение", "Анализ").
-*   **НИКОГДА** не используй Markdown (`#`, `*`). Только HTML-теги `<b>` и `</b>` для жирного шрифта.
-*   **НИКОГДА** не добавляй дисклеймеры или примечания.
-
----
-НОВОСТИ ДЛЯ АНАЛИЗА:
-{storyline['news_texts']}
----
+**ТРЕБОВАНИЯ:**
+1.  **Начинай сразу с яркого, интригующего заголовка.**
+2.  **Никаких выдумок.** Не добавляй факты, которых нет в исходных новостях.
+3.  **Пиши как эксперт:** глубокий анализ, увлекательный стиль, цельное повествование.
+4.  **ЗАПРЕТЫ:** НИКОГДА не используй подзаголовки ("Введение", "Заключение"), дисклеймеры или маркеры ("Статья:").
 """
     raw_article_text = _call_gemini_ai(prompt, max_tokens=3500)
     if not raw_article_text: return None
-    storyline['article'] = clean_ai_artifacts(raw_article_text)
+    
+    cleaned_article_text = clean_ai_artifacts(raw_article_text)
+    
+    lines = cleaned_article_text.strip().split('\n')
+    title, body_start_index = "", -1
+    for i, line in enumerate(lines):
+        if line.strip():
+            title = line.strip()
+            body_start_index = i + 1
+            break
+            
+    is_bad_title = len(title) > 120 or (len(title.split()) > 1 and sum(1 for word in title.split() if word and word[0].isupper()) / len(title.split()) > 0.6)
+    if is_bad_title:
+        print(f"Обнаружен плохой заголовок: '{title}'. Запрашиваем новый...")
+        remake_prompt = f"Придумай короткий (5-10 слов), интригующий и понятный заголовок на русском языке для этой статьи:\n\n{cleaned_article_text}"
+        new_title_response = _call_gemini_ai(remake_prompt, max_tokens=60)
+        
+        if new_title_response:
+            new_title = new_title_response.strip().replace('"', '')
+            print(f"Новый заголовок: '{new_title}'")
+            body_lines = lines[body_start_index:] if body_start_index != -1 and body_start_index < len(lines) else []
+            body = '\n'.join(body_lines).strip()
+            storyline['article'] = f"{new_title}\n{body}"
+        else:
+            storyline['article'] = cleaned_article_text
+    else:
+        storyline['article'] = cleaned_article_text
+        
     return storyline
 
 def write_summary_article(remaining_news, main_event_query):
     print("План Б: Создание общей новостной сводки...")
     storyline = {"title": "Общая сводка новостей", "category": "Дайджест", "search_queries": [main_event_query] if main_event_query else ["latest football news"]}
-    prompt = f"""Роль:
-Ты — первоклассный спортивный журналист и редактор Дзен-канала. Твоя задача — создать вирусный новостной дайджест.
-Главные правила:
-Пиши только на безупречном РУССКОМ языке.
-Основывайся СТРОГО на фактах из предоставленных новостей.
-ТРЕБОВАНИЯ К ТЕКСТУ:
-Заголовок:
-Твой ответ должен начинаться СРАЗУ с заголовка.
-Заголовок должен быть интригующим и цепляющим, обязательно совмещая 2-3 самых громких события дайджеста. Длина: 7-15 слов.
-Структура и Форматирование:
-Вступительный абзац (Крючок): Начни с одного короткого (1-2 предложения) абзаца, который сразу же обещает читателю самые острые новости дня.
-Основная часть: Оформи дайджест как маркированный список, используя символ • или - для каждой новости.
-Каждая новость: Кратко опиши каждую новость в 2-3 коротких, ударных предложениях.
-Выделение: Внутри описания каждой новости выделяй ключевые слова, имена и интригующие детали жирным шрифтом. Используй теги <b> и </b>.
-Стиль:
-Динамика: Используй простой, разговорный язык и активный залог.
-Без "воды": Убирай все лишние слова и конструкции.
-ЗАПРЕТЫ:
-НИКОГДА не используй Markdown-форматирование (#, *). Только HTML-теги <b> и </b> для жирного шрифта.
-НИКОГДА не используй формальные подзаголовки ("Введение", "Новости дня", "Заключение").
+    prompt = f"""Ты — первоклассный спортивный журналист. Напиши одну общую статью-дайджест.
+
+ТРЕБОВАНИЯ:
+1.  Придумай яркий и интригующий заголовок, отражающий САМОЕ интересное событие.
+2.  В статье кратко, в 2-3 предложениях, расскажи о 3-4 самых заметных новостях.
+3.  Статья должна быть на безупречном РУССКОМ языке и без формальных подзаголовков.
 
 НОВЫЙ ПОТОК НОВОСТЕЙ:
 ---
@@ -315,7 +264,8 @@ def write_summary_article(remaining_news, main_event_query):
         return storyline
     return None
 
-def find_real_photo_on_google(storyline):
+async def find_real_photo_on_google(storyline):
+    await asyncio.sleep(2)
     if not GOOGLE_API_KEY or not GOOGLE_CSE_ID: return None
     queries = storyline.get("search_queries", [])
     if not queries: return None
@@ -329,7 +279,8 @@ def find_real_photo_on_google(storyline):
             data = response.json()
             if "items" in data and data["items"]:
                 image_url = data["items"][0]["link"]
-                if not image_url.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')): continue
+                if not image_url.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+                    continue
                 image_response = requests.get(image_url, timeout=60, headers={'User-Agent': 'Mozilla/5.0'})
                 image_response.raise_for_status()
                 os.makedirs(IMAGE_DIR, exist_ok=True)
@@ -372,10 +323,12 @@ def update_rss_file(processed_storylines):
                 start_of_body_index = i + 1
                 break
         
-        if not title: continue
+        if not title:
+            print("Пропускаем статью: не удалось извлечь заголовок."); continue
             
         full_text = '\n'.join(lines[start_of_body_index:]).strip()
-        if len(full_text.split()) < 30: continue
+        if len(full_text.split()) < 30:
+            print(f"Пропускаем статью '{title}': основной текст слишком короткий."); continue
 
         item = ET.Element("item")
         ET.SubElement(item, "title").text = title
@@ -438,7 +391,9 @@ def run_telegram_poster(storylines_json):
         if not title: continue
         full_text = '\n'.join(lines[start_of_body_index:]).strip()
 
-        if len(full_text.split()) < 30: continue
+        if len(full_text.split()) < 30:
+            print(f"Пропускаем отправку в Telegram статьи '{title}': основной текст слишком короткий.")
+            continue
         
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         text = f"<b>{title}</b>\n\n{full_text}"
@@ -455,89 +410,93 @@ def run_telegram_poster(storylines_json):
 
 async def run_rss_generator():
     """Основная логика генерации RSS и изображений."""
-    
-    # Шаг 0: Загрузка всех типов "памяти"
     title_memory = {}
     try:
         if os.path.exists(MEMORY_FILE_PATH):
             with open(MEMORY_FILE_PATH, 'r', encoding='utf-8') as f: title_memory = json.load(f)
+            print(f"Загружено {len(title_memory)} записей из памяти заголовков.")
     except (FileNotFoundError, json.JSONDecodeError):
         print("Файл памяти заголовков не найден или пуст.")
-    print(f"Загружено {len(title_memory)} записей из памяти заголовков.")
 
     digest_memory = []
     try:
         if os.path.exists(DIGEST_MEMORY_PATH):
             with open(DIGEST_MEMORY_PATH, 'r', encoding='utf-8') as f: digest_memory = json.load(f)
+            print(f"Загружено {len(digest_memory)} новостей из памяти дайджестов.")
     except (FileNotFoundError, json.JSONDecodeError):
         print("Файл памяти дайджестов не найден.")
-    print(f"Загружено {len(digest_memory)} новостей из памяти дайджестов.")
 
     news_memory = {}
     try:
         if os.path.exists(NEWS_MEMORY_PATH):
             with open(NEWS_MEMORY_PATH, 'r', encoding='utf-8') as f: news_memory = json.load(f)
+            print(f"Загружено {len(news_memory)} новостей из памяти постов.")
     except (FileNotFoundError, json.JSONDecodeError):
         print("Файл памяти новостей не найден.")
-    print(f"Загружено {len(news_memory)} новостей из памяти постов.")
 
-    # Обрезаем память для использования в этом запуске
-    memory_for_prompt = dict(list(title_memory.items())[-70:])
-    digest_memory_for_check = digest_memory[-150:]
+    candidate_posts = await get_channel_posts()
+    unique_posts = await filter_unique_posts(candidate_posts, news_memory)
     
-    all_news_list = await get_channel_posts(news_memory)
-    if not all_news_list or len(all_news_list) < 3:
+    if not unique_posts or len(unique_posts) < 3:
         print("Новых постов для обработки недостаточно."); return
 
-    if len("\n\n---\n\n".join(all_news_list)) > 50000:
-        print("Слишком большой объем новостей, обрезаем.")
-        all_news_list = all_news_list[:300]
-
-    unique_storylines, main_event_query = cluster_news_into_storylines(all_news_list, memory_for_prompt)
+    # "Разделяй и властвуй"
+    mid_index = len(unique_posts) // 2
+    news_batch_1 = unique_posts[:mid_index]
+    news_batch_2 = unique_posts[mid_index:]
+    
+    print(f"Разделяем уникальные новости на две пачки: {len(news_batch_1)} и {len(news_batch_2)} постов.")
+    
+    # Используем asyncio.gather для асинхронного выполнения (но сами функции внутри - синхронные)
+    storyline_candidates_results = await asyncio.gather(
+        asyncio.to_thread(cluster_news_into_storylines, news_batch_1, dict(list(title_memory.items())[-70:])),
+        asyncio.to_thread(cluster_news_into_storylines, news_batch_2, dict(list(title_memory.items())[-70:]))
+    )
+    
+    all_storyline_candidates = []
+    main_event_query = None
+    for result_tuple in storyline_candidates_results:
+        if result_tuple:
+            storylines, query = result_tuple
+            if storylines: all_storyline_candidates.extend(storylines)
+            if query and not main_event_query: main_event_query = query
+    
+    print(f"\nВсего найдено {len(all_storyline_candidates)} кандидатов в сюжеты.")
     
     processed_storylines = []
-    used_news_indices = set()
-    
-    if unique_storylines:
-        print(f"Начинаем обработку {len(unique_storylines)} уникальных сюжетов...")
-        for storyline in unique_storylines:
+    used_news_for_digest = set()
+    if all_storyline_candidates:
+        print(f"Начинаем обработку {len(all_storyline_candidates)} уникальных сюжетов-кандидатов...")
+        for storyline in all_storyline_candidates:
             if len(processed_storylines) >= 5:
-                print("Уже набрано 5 статей, прекращаем обработку сюжетов.")
-                break
-
+                print("Уже набрано 5 статей, прекращаем обработку сюжетов."); break
             if len(storyline.get("news_texts", "")) < 50:
                 continue
-            
             storyline_with_article = write_article_for_storyline(storyline)
             if not storyline_with_article: continue
             
-            article_parts = storyline_with_article['article'].split('\n', 1)
-            title_part = article_parts[0] if article_parts else ""
-            full_text_part = article_parts[1] if len(article_parts) > 1 else ""
-
-            if len(full_text_part.split()) < 30:
-                print(f"Пропускаем статью '{title_part}': сгенерированный текст слишком короткий.")
+            full_text = storyline_with_article['article'].split('\n', 1)[1] if '\n' in storyline_with_article['article'] else ""
+            if len(full_text.split()) < 30:
+                print(f"Пропускаем статью '{storyline_with_article['article'].split('\n', 1)[0]}': сгенерированный текст слишком короткий.")
                 continue
 
-            used_news_indices.update(storyline.get("news_indices", []))
-            final_storyline = find_real_photo_on_google(storyline_with_article)
+            used_news_for_digest.update(storyline.get("news_texts", "").split("\n\n---\n\n"))
+            final_storyline = await find_real_photo_on_google(storyline_with_article)
             processed_storylines.append(final_storyline or storyline_with_article)
     
     if not processed_storylines:
         print("Ни один из сюжетов не прошел фильтры. Переходим к плану Б.")
-        remaining_news_list = [news for news in all_news_list if news not in digest_memory_for_check]
+        remaining_news_list = [news for news in all_news_list if news not in digest_memory[-70:]]
         if remaining_news_list:
             remaining_news_text = "\n\n---\n\n".join(remaining_news_list)
-            
             news_sample_for_prompt = '\n'.join(all_news_list[:20])
             main_event_prompt = f"Проанализируй эти новости и верни ОДНУ главную персону или событие на английском для поиска фото:\n\n{news_sample_for_prompt}"
-            
             main_event_query_response = _call_gemini_ai(main_event_prompt, max_tokens=100)
             main_event_query = main_event_query_response.strip() if main_event_query_response else "latest football news"
 
             summary_storyline = write_summary_article(remaining_news_text, main_event_query)
             if summary_storyline:
-                final_summary = find_real_photo_on_google(summary_storyline)
+                final_summary = await find_real_photo_on_google(summary_storyline)
                 processed_storylines.append(final_summary or summary_storyline)
                 digest_memory.extend(remaining_news_list)
         else:
@@ -558,38 +517,32 @@ async def run_rss_generator():
     
     update_rss_file(processed_storylines)
     
-    # ⬇️⬇️⬇️ НАЧАЛО НОВОЙ ЛОГИКИ ОЧИСТКИ ФАЙЛОВ "ПАМЯТИ" ⬇️⬇️⬇️
     title_memory.update(new_memory_entries)
     if len(title_memory) > 70:
-        print(f"Память заголовков слишком велика ({len(title_memory)}), обрезаем до 70.")
         keys_to_keep = list(title_memory.keys())[-70:]
         title_memory = {k: title_memory[k] for k in keys_to_keep}
     with open(MEMORY_FILE_PATH, 'w', encoding='utf-8') as f:
         json.dump(title_memory, f, ensure_ascii=False, indent=2)
-    print(f"Память заголовков обновлена. Теперь в ней {len(title_memory)} записей.")
+    print(f"Память заголовков обновлена.")
 
     if len(digest_memory) > 150:
-        print(f"Память дайджестов слишком велика ({len(digest_memory)}), обрезаем до 150.")
         digest_memory = digest_memory[-150:]
     with open(DIGEST_MEMORY_PATH, 'w', encoding='utf-8') as f:
         json.dump(digest_memory, f, ensure_ascii=False)
-    print(f"Память дайджестов обновлена. Теперь в ней {len(digest_memory)} новостей.")
-    
-    # news_memory уже обновлена внутри get_channel_posts, просто сохраняем и обрезаем
+    print(f"Память дайджестов обновлена.")
+
     if len(news_memory) > 250:
-        print(f"Память новостей слишком велика ({len(news_memory)}), обрезаем до 250.")
         keys_to_keep = list(news_memory.keys())[-250:]
         news_memory = {k: news_memory[k] for k in keys_to_keep}
     with open(NEWS_MEMORY_PATH, 'w', encoding='utf-8') as f:
         json.dump(news_memory, f, ensure_ascii=False)
-    print(f"Память новостей обновлена. Теперь в ней {len(news_memory)} постов.")
-    # ⬆️⬆️⬆️ КОНЕЦ НОВОЙ ЛОГИКИ ОЧИСТКИ ФАЙЛОВ "ПАМЯТИ" ⬆️⬆️⬆️
+    print(f"Память новостей обновлена.")
     
     storylines_json = json.dumps(processed_storylines)
     if 'GITHUB_OUTPUT' in os.environ:
         with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
             f.write(f'processed_storylines_json={storylines_json}\n')
-            
+
 if __name__ == "__main__":
     if len(sys.argv) > 2 and sys.argv[1] == '--mode':
         mode = sys.argv[2]
