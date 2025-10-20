@@ -38,6 +38,7 @@ TELEGRAM_CHANNEL_USERNAME = os.environ.get("TELEGRAM_CHANNEL_USERNAME", "").stri
 TEXT_MODEL_NAME = "gemini-2.5-flash"
 EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5"
 
+NEWS_MEMORY_PATH = os.path.join(os.getcwd(), "news_memory.json") # ⬅️ НОВАЯ СТРОКА
 RSS_FILE_PATH = os.path.join(os.getcwd(), "rss.xml")
 IMAGE_DIR = os.path.join(os.getcwd(), "images")
 MEMORY_FILE_PATH = os.path.join(os.getcwd(), "memory.json")
@@ -86,17 +87,20 @@ def get_embedding(text):
         except (KeyError, IndexError): return None
     return None
 
-async def get_channel_posts():
+async def get_channel_posts(news_memory):
+    """Собирает новости за последний час, фильтруя смысловые дубли."""
     API_ID = os.environ.get("API_ID")
     API_HASH = os.environ.get("API_HASH")
     SESSION_STRING = os.environ.get("SESSION_STRING")
     if not API_ID or not API_HASH or not SESSION_STRING:
         raise ValueError("Секреты Telegram для парсинга не найдены!")
     client = TelegramClient(StringSession(SESSION_STRING), int(API_ID), API_HASH)
-    all_posts = []
+    
+    candidate_posts = []
     unique_texts = set()
     now = datetime.datetime.now(datetime.timezone.utc)
     cutoff = now - timedelta(hours=1)
+    
     async with client:
         for channel_name in CHANNELS:
             print(f"Парсинг канала: {channel_name}...")
@@ -105,12 +109,36 @@ async def get_channel_posts():
                     if msg.date < cutoff: break
                     if msg.text and msg.text not in unique_texts:
                         unique_texts.add(msg.text)
-                        all_posts.append(msg.text.strip())
+                        candidate_posts.append(msg.text.strip())
             except Exception as e:
                 print(f"Не удалось получить посты из канала '{channel_name}': {e}")
-    print(f"Найдено {len(all_posts)} уникальных постов.")
-    return all_posts
 
+    print(f"Найдено {len(candidate_posts)} постов-кандидатов. Начинаем фильтрацию дублей...")
+    
+    unique_posts = []
+    # Превращаем старые векторы в список для быстрого доступа
+    old_embeddings = list(news_memory.values())
+    
+    for post_text in candidate_posts:
+        post_embedding = get_embedding(post_text)
+        if not post_embedding: # Если не удалось получить вектор, на всякий случай пропускаем пост
+            unique_posts.append(post_text)
+            continue
+        
+        is_duplicate = False
+        for old_embedding in old_embeddings:
+            if cosine_similarity(post_embedding, old_embedding) > SIMILARITY_THRESHOLD:
+                is_duplicate = True
+                break
+        
+        if not is_duplicate:
+            unique_posts.append(post_text)
+            # Сразу добавляем новый уникальный пост в "память" для проверки следующих кандидатов из этого же запуска
+            news_memory[post_text] = post_embedding
+            old_embeddings.append(post_embedding)
+
+    print(f"После фильтрации осталось {len(unique_posts)} уникальных постов.")
+    return unique_posts
 def _call_gemini_ai(prompt, max_tokens=2048, use_json_mode=False):
     if not GEMINI_API_KEY:
         print("Секрет GEMINI_API_KEY не найден. Пропускаем вызов AI.")
@@ -427,107 +455,96 @@ def run_telegram_poster(storylines_json):
 
 async def run_rss_generator():
     """Основная логика генерации RSS и изображений."""
-    memory = {}
+    
+    # Шаг 0: Загрузка всех типов "памяти"
+    title_memory = {}
     try:
         if os.path.exists(MEMORY_FILE_PATH):
-            with open(MEMORY_FILE_PATH, 'r', encoding='utf-8') as f: memory = json.load(f)
-            print(f"Загружено {len(memory)} заголовков из памяти.")
+            with open(MEMORY_FILE_PATH, 'r', encoding='utf-8') as f: title_memory = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
-        print("Файл памяти не найден или пуст.")
-    
+        print("Файл памяти заголовков не найден или пуст.")
+    print(f"Загружено {len(title_memory)} записей из памяти заголовков.")
+
     digest_memory = []
     try:
         if os.path.exists(DIGEST_MEMORY_PATH):
             with open(DIGEST_MEMORY_PATH, 'r', encoding='utf-8') as f: digest_memory = json.load(f)
-            print(f"Загружено {len(digest_memory)} новостей из памяти дайджестов.")
     except (FileNotFoundError, json.JSONDecodeError):
         print("Файл памяти дайджестов не найден.")
+    print(f"Загружено {len(digest_memory)} новостей из памяти дайджестов.")
 
-    all_news_list = await get_channel_posts()
+    news_memory = {}
+    try:
+        if os.path.exists(NEWS_MEMORY_PATH):
+            with open(NEWS_MEMORY_PATH, 'r', encoding='utf-8') as f: news_memory = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        print("Файл памяти новостей не найден.")
+    print(f"Загружено {len(news_memory)} новостей из памяти постов.")
+
+    # Обрезаем память для использования в этом запуске
+    memory_for_prompt = dict(list(title_memory.items())[-70:])
+    digest_memory_for_check = digest_memory[-150:]
+    
+    all_news_list = await get_channel_posts(news_memory)
     if not all_news_list or len(all_news_list) < 3:
         print("Новых постов для обработки недостаточно."); return
 
-    # ⬇️⬇️⬇️ НАЧАЛО НОВОЙ ЛОГИКИ "РАЗДЕЛЯЙ И ВЛАСТВУЙ" ⬇️⬇️⬇️
-    
-    # 1. Разделяем все новости на две примерно равные пачки
-    mid_index = len(all_news_list) // 2
-    news_batch_1 = all_news_list[:mid_index]
-    news_batch_2 = all_news_list[mid_index:]
-    
-    print(f"Разделяем новости на две пачки: {len(news_batch_1)} и {len(news_batch_2)} постов.")
-    
-   # 2. Обрабатываем обе пачки последовательно
-    print("\n--- Обработка первой пачки новостей ---")
-    storylines1, query1 = cluster_news_into_storylines(news_batch_1, memory)
-    
-    print("\n--- Обработка второй пачки новостей ---")
-    storylines2, query2 = cluster_news_into_storylines(news_batch_2, memory)
-    
-    # 3. Объединяем результаты
-    all_storyline_candidates = (storylines1 or []) + (storylines2 or [])
-    main_event_query = query1 or query2 or "latest football news"
+    if len("\n\n---\n\n".join(all_news_list)) > 50000:
+        print("Слишком большой объем новостей, обрезаем.")
+        all_news_list = all_news_list[:300]
 
-    print(f"\nВсего найдено {len(all_storyline_candidates)} кандидатов в сюжеты.")
-
-    # Весь остальной код функции остается почти без изменений,
-    # но теперь он работает с `all_storyline_candidates` вместо `unique_storylines`
-
+    unique_storylines, main_event_query = cluster_news_into_storylines(all_news_list, memory_for_prompt)
+    
     processed_storylines = []
-    used_news_indices = set() # Эта переменная больше не нужна в этой логике, но оставим для совместимости
+    used_news_indices = set()
     
-    if all_storyline_candidates:
-        print(f"Начинаем обработку {len(all_storyline_candidates)} уникальных сюжетов-кандидатов...")
-        for storyline in all_storyline_candidates:
+    if unique_storylines:
+        print(f"Начинаем обработку {len(unique_storylines)} уникальных сюжетов...")
+        for storyline in unique_storylines:
             if len(processed_storylines) >= 5:
                 print("Уже набрано 5 статей, прекращаем обработку сюжетов.")
                 break
+
             if len(storyline.get("news_texts", "")) < 50:
                 continue
             
             storyline_with_article = write_article_for_storyline(storyline)
             if not storyline_with_article: continue
             
-            full_text = storyline_with_article['article'].split('\n', 1)[1] if '\n' in storyline_with_article['article'] else ""
             article_parts = storyline_with_article['article'].split('\n', 1)
-            title_part = article_parts[0]
+            title_part = article_parts[0] if article_parts else ""
             full_text_part = article_parts[1] if len(article_parts) > 1 else ""
 
             if len(full_text_part.split()) < 30:
                 print(f"Пропускаем статью '{title_part}': сгенерированный текст слишком короткий.")
                 continue
 
-            # used_news_indices.update(storyline.get("news_indices", [])) # Больше не нужно
+            used_news_indices.update(storyline.get("news_indices", []))
             final_storyline = find_real_photo_on_google(storyline_with_article)
             processed_storylines.append(final_storyline or storyline_with_article)
     
     if not processed_storylines:
-        print("Ни один из сюжетов не прошел фильтры. Переходим к плану Б: создание общей новостной сводки.")
-        remaining_news_list = [news for news in all_news_list if news not in digest_memory]
+        print("Ни один из сюжетов не прошел фильтры. Переходим к плану Б.")
+        remaining_news_list = [news for news in all_news_list if news not in digest_memory_for_check]
         if remaining_news_list:
             remaining_news_text = "\n\n---\n\n".join(remaining_news_list)
             
-            # Если main_event_query не был определен на шаге 1, запрашиваем его здесь
-            if not main_event_query:
-                # ⬇️⬇️⬇️ ИСПРАВЛЕНИЕ ЗДЕСЬ ⬇️⬇️⬇️
-                # Сначала готовим текст для промпта
-                news_sample_for_prompt = '\n'.join(all_news_list[:20])
-                # Затем безопасно вставляем его в f-строку
-                main_event_prompt = f"Проанализируй эти новости и верни ОДНУ главную персону или событие на английском для поиска фото:\n\n{news_sample_for_prompt}"
-                
-                main_event_query_response = _call_gemini_ai(main_event_prompt, max_tokens=100)
-                main_event_query = main_event_query_response.strip() if main_event_query_response else "latest football news"
+            news_sample_for_prompt = '\n'.join(all_news_list[:20])
+            main_event_prompt = f"Проанализируй эти новости и верни ОДНУ главную персону или событие на английском для поиска фото:\n\n{news_sample_for_prompt}"
+            
+            main_event_query_response = _call_gemini_ai(main_event_prompt, max_tokens=100)
+            main_event_query = main_event_query_response.strip() if main_event_query_response else "latest football news"
 
             summary_storyline = write_summary_article(remaining_news_text, main_event_query)
-            
             if summary_storyline:
                 final_summary = find_real_photo_on_google(summary_storyline)
                 processed_storylines.append(final_summary or summary_storyline)
                 digest_memory.extend(remaining_news_list)
         else:
-            print("Недостаточно новых новостей для создания дайджеста.")
+            print("Недостаточно новых новостей для дайджеста.")
 
     if not processed_storylines:
-        print("Не удалось сгенерировать ни одной статьи. Завершение работы."); return
+        print("Не удалось сгенерировать ни одной статьи."); return
 
     new_memory_entries = {}
     for storyline in processed_storylines:
@@ -541,19 +558,32 @@ async def run_rss_generator():
     
     update_rss_file(processed_storylines)
     
-    memory.update(new_memory_entries)
-    if len(memory) > 200:
-        keys_to_keep = list(memory.keys())[-150:]
-        memory = {k: memory[k] for k in keys_to_keep}
+    # ⬇️⬇️⬇️ НАЧАЛО НОВОЙ ЛОГИКИ ОЧИСТКИ ФАЙЛОВ "ПАМЯТИ" ⬇️⬇️⬇️
+    title_memory.update(new_memory_entries)
+    if len(title_memory) > 70:
+        print(f"Память заголовков слишком велика ({len(title_memory)}), обрезаем до 70.")
+        keys_to_keep = list(title_memory.keys())[-70:]
+        title_memory = {k: title_memory[k] for k in keys_to_keep}
     with open(MEMORY_FILE_PATH, 'w', encoding='utf-8') as f:
-        json.dump(memory, f, ensure_ascii=False, indent=2)
-    print(f"Память заголовков обновлена.")
+        json.dump(title_memory, f, ensure_ascii=False, indent=2)
+    print(f"Память заголовков обновлена. Теперь в ней {len(title_memory)} записей.")
 
-    if len(digest_memory) > 500:
-        digest_memory = digest_memory[-400:]
+    if len(digest_memory) > 150:
+        print(f"Память дайджестов слишком велика ({len(digest_memory)}), обрезаем до 150.")
+        digest_memory = digest_memory[-150:]
     with open(DIGEST_MEMORY_PATH, 'w', encoding='utf-8') as f:
         json.dump(digest_memory, f, ensure_ascii=False)
-    print(f"Память дайджестов обновлена.")
+    print(f"Память дайджестов обновлена. Теперь в ней {len(digest_memory)} новостей.")
+    
+    # news_memory уже обновлена внутри get_channel_posts, просто сохраняем и обрезаем
+    if len(news_memory) > 250:
+        print(f"Память новостей слишком велика ({len(news_memory)}), обрезаем до 250.")
+        keys_to_keep = list(news_memory.keys())[-250:]
+        news_memory = {k: news_memory[k] for k in keys_to_keep}
+    with open(NEWS_MEMORY_PATH, 'w', encoding='utf-8') as f:
+        json.dump(news_memory, f, ensure_ascii=False)
+    print(f"Память новостей обновлена. Теперь в ней {len(news_memory)} постов.")
+    # ⬆️⬆️⬆️ КОНЕЦ НОВОЙ ЛОГИКИ ОЧИСТКИ ФАЙЛОВ "ПАМЯТИ" ⬆️⬆️⬆️
     
     storylines_json = json.dumps(processed_storylines)
     if 'GITHUB_OUTPUT' in os.environ:
