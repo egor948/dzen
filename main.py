@@ -519,11 +519,17 @@ async def run_rss_generator():
             
             # Если main_event_query не был определен на шаге 1, запрашиваем его здесь
             if not main_event_query:
-                main_event_prompt = f"Проанализируй эти новости и верни ОДНУ главную персону или событие на английском для поиска фото:\n\n{'\n'.join(all_news_list[:20])}"
+                # ⬇️⬇️⬇️ ИСПРАВЛЕНИЕ ЗДЕСЬ ⬇️⬇️⬇️
+                # Сначала готовим текст для промпта
+                news_sample_for_prompt = '\n'.join(all_news_list[:20])
+                # Затем безопасно вставляем его в f-строку
+                main_event_prompt = f"Проанализируй эти новости и верни ОДНУ главную персону или событие на английском для поиска фото:\n\n{news_sample_for_prompt}"
+                
                 main_event_query_response = _call_gemini_ai(main_event_prompt, max_tokens=100)
                 main_event_query = main_event_query_response.strip() if main_event_query_response else "latest football news"
 
             summary_storyline = write_summary_article(remaining_news_text, main_event_query)
+            
             if summary_storyline:
                 final_summary = find_real_photo_on_google(summary_storyline)
                 processed_storylines.append(final_summary or summary_storyline)
