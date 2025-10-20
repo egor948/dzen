@@ -456,29 +456,18 @@ async def run_rss_generator():
     
     print(f"Разделяем новости на две пачки: {len(news_batch_1)} и {len(news_batch_2)} постов.")
     
-    # 2. Обрабатываем обе пачки, чтобы получить кандидатов в сюжеты
-    # Используем asyncio.gather для параллельного выполнения (быстрее!)
-    storyline_candidates_results = await asyncio.gather(
-        cluster_news_into_storylines(news_batch_1, memory),
-        cluster_news_into_storylines(news_batch_2, memory)
-    )
+   # 2. Обрабатываем обе пачки последовательно
+    print("\n--- Обработка первой пачки новостей ---")
+    storylines1, query1 = cluster_news_into_storylines(news_batch_1, memory)
     
-    # 3. Объединяем результаты в один большой список кандидатов
-    all_storyline_candidates = []
-    main_event_query = None
-    for result_tuple in storyline_candidates_results:
-        if result_tuple: # Убедимся, что результат не None
-            storylines, query = result_tuple
-            if storylines:
-                all_storyline_candidates.extend(storylines)
-            if query and not main_event_query: # Берем первую найденную главную тему
-                main_event_query = query
+    print("\n--- Обработка второй пачки новостей ---")
+    storylines2, query2 = cluster_news_into_storylines(news_batch_2, memory)
+    
+    # 3. Объединяем результаты
+    all_storyline_candidates = (storylines1 or []) + (storylines2 or [])
+    main_event_query = query1 or query2 or "latest football news"
 
-    if not all_storyline_candidates:
-        print("После анализа обеих пачек не найдено ни одного сюжета.")
-        # Логика Плана Б остается той же
-    
-    # ⬆️⬆️⬆️ КОНЕЦ НОВОЙ ЛОГИКИ ⬆️⬆️⬆️
+    print(f"\nВсего найдено {len(all_storyline_candidates)} кандидатов в сюжеты.")
 
     # Весь остальной код функции остается почти без изменений,
     # но теперь он работает с `all_storyline_candidates` вместо `unique_storylines`
