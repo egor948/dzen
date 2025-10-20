@@ -475,9 +475,13 @@ async def run_rss_generator():
             storyline_with_article = write_article_for_storyline(storyline)
             if not storyline_with_article: continue
             
-            full_text = storyline_with_article['article'].split('\n', 1)[1] if '\n' in storyline_with_article['article'] else ""
-            if len(full_text.split()) < 30:
-                print(f"Пропускаем статью '{storyline_with_article['article'].split('\n', 1)[0]}': сгенерированный текст слишком короткий.")
+            # ⬇️⬇️⬇️ ИСПРАВЛЕНИЕ ЗДЕСЬ ⬇️⬇️⬇️
+            article_parts = storyline_with_article['article'].split('\n', 1)
+            title_part = article_parts[0] if article_parts else ""
+            full_text_part = article_parts[1] if len(article_parts) > 1 else ""
+
+            if len(full_text_part.split()) < 30:
+                print(f"Пропускаем статью '{title_part}': сгенерированный текст слишком короткий.")
                 continue
 
             used_news_for_digest.update(storyline.get("news_texts", "").split("\n\n---\n\n"))
