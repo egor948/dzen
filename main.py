@@ -148,37 +148,41 @@ def clean_ai_artifacts(text):
     return cleaned_text
 
 def cluster_news_into_storylines(all_news_list, memory):
-    """Группирует новости и определяет главную тему."""
-    print("Этап 1: Группировка новостей в до 5 сюжетов и определение главной темы...")
+    """Группирует новости в потенциальные сюжеты для статей, возвращая индексы."""
+    print("Этап 1: Группировка новостей в сюжеты...")
     
-    # Нумеруем новости для передачи в промпт
     numbered_news = "\n\n---\n\n".join([f"Новость #{i}:\n{news}" for i, news in enumerate(all_news_list)])
 
-    prompt = f"""Ты — главный редактор. Проанализируй пронумерованные новости ниже и выполни два действия:
+    prompt = f"""Ты — главный редактор. Проанализируй пронумерованные новости ниже.
+Найди **КАК МОЖНО БОЛЬШЕ** качественных, независимых сюжетов для статей (до 10 штук). Твоя цель — найти максимальное количество потенциальных инфоповодов.
 
-1.  **Найди до 5 (от 3 до 5) самых интересных сюжетов для статей.** Для каждого сюжета верни JSON-объект с полями: `title`, `category`, `search_queries` и `news_indices` (массив номеров новостей).
-2.  **Определи главную тему часа.** Проанализируй ВЕСЬ новостной поток и верни ОДНУ главную персону или событие в поле `main_event_query` (на английском, для поиска фото).
+Для каждого сюжета верни JSON-объект с полями:
+- `title`: Краткое рабочее название сюжета на русском.
+- `category`: Категория для RSS на русском.
+- `search_queries`: Массив из 2-3 запросов на английском для фото.
+- `news_indices`: Массив НОМЕРОВ новостей (целых чисел), которые относятся к этому сюжету.
 
-Твой ответ ДОЛЖЕН БЫТЬ ТОЛЬКО в формате одного JSON-объекта с ключами `storylines` и `main_event_query`, обернутого в ```json ... ```.
+Твой ответ ДОЛЖЕН БЫТЬ ТОЛЬКО в формате JSON-массива.
 
 ПРОНУМЕРОВАННЫЕ НОВОСТИ:
 ---
 {numbered_news}
 ---
-```json
 """
     raw_response = _call_gemini_ai(prompt, use_json_mode=True, max_tokens=4096)
-    if not raw_response: return [], None
+    if not raw_response: return []
+    
     try:
         storylines_with_indices = json.loads(raw_response)
         
-        # Извлекаем и данные, и главную тему
-        storylines_data = storylines_with_indices.get("storylines", [])
-        main_event_query = storylines_with_indices.get("main_event_query")
-
         storylines = []
-        for storyline in storylines_data:
-            storyline['news_texts'] = "\n\n---\n\n".join([all_news_list[i] for i in storyline.get("news_indices", []) if i < len(all_news_list)])
+        for storyline in storylines_with_indices:
+            # Собираем текст новостей по индексам
+            indices = storyline.get("news_indices", [])
+            news_texts = "\n\n---\n\n".join([all_news_list[i] for i in indices if i < len(all_news_list)])
+            
+            # Добавляем полный текст в наш объект
+            storyline['news_texts'] = news_texts
             storylines.append(storyline)
             
         unique_storylines = []
@@ -194,10 +198,14 @@ def cluster_news_into_storylines(all_news_list, memory):
                 if cosine_similarity(title_embedding, old_embedding) > SIMILARITY_THRESHOLD:
                     is_duplicate = True; break
             if not is_duplicate: unique_storylines.append(storyline)
+            
         print(f"Найдено {len(storylines)} сюжетов, из них {len(unique_storylines)} уникальных.")
-        return unique_storylines, main_event_query
+        return unique_storylines
     except (json.JSONDecodeError, KeyError) as e:
-        print(f"Ошибка декодирования JSON ответа модели: {e}"); return [], None
+        print(f"Ошибка декодирования JSON ответа модели: {e}")
+        if 'raw_response' in locals():
+            print("Сырой ответ от модели:", raw_response)
+        return []```
 
 def write_article_for_storyline(storyline):
     """Пишет статью по конкретному сюжету."""
@@ -453,27 +461,32 @@ async def run_rss_generator():
     if unique_storylines:
         print(f"Начинаем обработку {len(unique_storylines)} уникальных сюжетов...")
         for storyline in unique_storylines:
-            # Прекращаем, если уже набрали 2 статьи
-            if len(processed_storylines) >= 2:
-                print("Уже набрано 2 статьи, прекращаем обработку сюжетов.")
+            # Прекращаем, если уже набрали 5 статей
+            if len(processed_storylines) >= 5:
+                print("Уже набрано 5 статей, прекращаем обработку сюжетов.")
                 break
 
             if len(storyline.get("news_texts", "")) < 50:
-                print(f"Пропускаем сюжет '{storyline.get('title')}' из-за недостатка материала.")
+                print(f"Пропускаем сюжет '{storyline.get('title')}' (слишком мало материала).")
                 continue
             
             storyline_with_article = write_article_for_storyline(storyline)
             if not storyline_with_article: continue
             
+            # Дополнительная проверка качества уже написанной статьи
+            full_text = storyline_with_article['article'].split('\n', 1)[1] if '\n' in storyline_with_article['article'] else ""
+            if len(full_text.split()) < 30:
+                print(f"Пропускаем статью '{storyline_with_article['article'].split('\n', 1)[0]}': сгенерированный текст слишком короткий.")
+                continue
+
             used_news_indices.update(storyline.get("news_indices", []))
-            
             final_storyline = find_real_photo_on_google(storyline_with_article)
             processed_storylines.append(final_storyline or storyline_with_article)
     
     # ПРОВЕРКА ДЛЯ "ПЛАНА Б": Если после всех попыток не получилось ни одной статьи, создаем общую.
     if not processed_storylines:
         print("Ни один из сюжетов не прошел фильтры. Переходим к плану Б: создание общей новостной сводки.")
-        # Используем полный список новостей для дайджеста, если сфокусированные статьи не созданы
+        # Используем новости, которые не попали в память дайджестов
         remaining_news_list = [news for news in all_news_list if news not in digest_memory]
         if remaining_news_list:
             remaining_news_text = "\n\n---\n\n".join(remaining_news_list)
@@ -525,7 +538,7 @@ async def run_rss_generator():
     if 'GITHUB_OUTPUT' in os.environ:
         with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
             f.write(f'processed_storylines_json={storylines_json}\n')
-
+            
 if __name__ == "__main__":
     if len(sys.argv) > 2 and sys.argv[1] == '--mode':
         mode = sys.argv[2]
