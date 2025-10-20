@@ -461,7 +461,6 @@ async def run_rss_generator():
     if unique_storylines:
         print(f"Начинаем обработку {len(unique_storylines)} уникальных сюжетов...")
         for storyline in unique_storylines:
-            # Прекращаем, если уже набрали 5 статей
             if len(processed_storylines) >= 5:
                 print("Уже набрано 5 статей, прекращаем обработку сюжетов.")
                 break
@@ -473,20 +472,21 @@ async def run_rss_generator():
             storyline_with_article = write_article_for_storyline(storyline)
             if not storyline_with_article: continue
             
-            # Дополнительная проверка качества уже написанной статьи
-            full_text = storyline_with_article['article'].split('\n', 1)[1] if '\n' in storyline_with_article['article'] else ""
-            if len(full_text.split()) < 30:
-                print(f"Пропускаем статью '{storyline_with_article['article'].split('\n', 1)[0]}': сгенерированный текст слишком короткий.")
+            # ⬇️⬇️⬇️ ИСПРАВЛЕНИЕ ЗДЕСЬ ⬇️⬇️⬇️
+            article_parts = storyline_with_article['article'].split('\n', 1)
+            title_part = article_parts[0]
+            full_text_part = article_parts[1] if len(article_parts) > 1 else ""
+
+            if len(full_text_part.split()) < 30:
+                print(f"Пропускаем статью '{title_part}': сгенерированный текст слишком короткий.")
                 continue
 
             used_news_indices.update(storyline.get("news_indices", []))
             final_storyline = find_real_photo_on_google(storyline_with_article)
             processed_storylines.append(final_storyline or storyline_with_article)
     
-    # ПРОВЕРКА ДЛЯ "ПЛАНА Б": Если после всех попыток не получилось ни одной статьи, создаем общую.
     if not processed_storylines:
         print("Ни один из сюжетов не прошел фильтры. Переходим к плану Б: создание общей новостной сводки.")
-        # Используем новости, которые не попали в память дайджестов
         remaining_news_list = [news for news in all_news_list if news not in digest_memory]
         if remaining_news_list:
             remaining_news_text = "\n\n---\n\n".join(remaining_news_list)
@@ -494,7 +494,6 @@ async def run_rss_generator():
             if summary_storyline:
                 final_summary = find_real_photo_on_google(summary_storyline)
                 processed_storylines.append(final_summary or summary_storyline)
-                # Добавляем использованные новости в память дайджестов
                 digest_memory.extend(remaining_news_list)
         else:
             print("Недостаточно новых новостей для создания дайджеста.")
@@ -505,7 +504,6 @@ async def run_rss_generator():
             with open(os.environ['GITHUB_OUTPUT'], 'a') as f: f.write('processed_storylines_json=[]\n')
         return
 
-    # Обновляем память только новыми, успешно обработанными статьями
     new_memory_entries = {}
     for storyline in processed_storylines:
         if storyline and storyline.get('article'):
@@ -518,7 +516,6 @@ async def run_rss_generator():
     
     update_rss_file(processed_storylines)
     
-    # Обновляем память заголовков
     memory.update(new_memory_entries)
     if len(memory) > 200:
         oldest_titles = list(memory.keys())[:-150]
@@ -527,7 +524,6 @@ async def run_rss_generator():
         json.dump(memory, f, ensure_ascii=False, indent=2)
     print(f"Память заголовков обновлена.")
 
-    # Обновляем память дайджестов
     if len(digest_memory) > 500:
         digest_memory = digest_memory[-400:]
     with open(DIGEST_MEMORY_PATH, 'w', encoding='utf-8') as f:
