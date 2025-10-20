@@ -153,16 +153,13 @@ def cluster_news_into_storylines(all_news_list, memory):
     
     numbered_news = "\n\n---\n\n".join([f"Новость #{i}:\n{news}" for i, news in enumerate(all_news_list)])
 
-    prompt = f"""Ты — главный редактор. Проанализируй пронумерованные новости ниже.
-Найди **КАК МОЖНО БОЛЬШЕ** качественных, независимых сюжетов для статей (до 10 штук). Твоя цель — найти максимальное количество потенциальных инфоповодов.
+    # ⬇️⬇️⬇️ ВОЗВРАЩАЕМ ПРОМПТ С ДВУМЯ ЗАДАЧАМИ ⬇️⬇️⬇️
+    prompt = f"""Ты — главный редактор. Проанализируй пронумерованные новости ниже и выполни два действия:
 
-Для каждого сюжета верни JSON-объект с полями:
-- `title`: Краткое рабочее название сюжета на русском.
-- `category`: Категория для RSS на русском.
-- `search_queries`: Массив из 2-3 запросов на английском для фото.
-- `news_indices`: Массив НОМЕРОВ новостей (целых чисел), которые относятся к этому сюжету.
+1.  **Найди КАК МОЖНО БОЛЬШЕ** качественных сюжетов для статей (до 10 штук). Для каждого сюжета верни JSON-объект с полями: `title`, `category`, `search_queries` и `news_indices`.
+2.  **Определи главную тему часа.** Проанализируй ВЕСЬ новостной поток и верни ОДНУ главную персону или событие в поле `main_event_query` (на английском).
 
-Твой ответ ДОЛЖЕН БЫТЬ ТОЛЬКО в формате JSON-массива.
+Твой ответ ДОЛЖЕН БЫТЬ ТОЛЬКО в формате одного JSON-объекта с ключами `storylines` и `main_event_query`.
 
 ПРОНУМЕРОВАННЫЕ НОВОСТИ:
 ---
@@ -173,15 +170,16 @@ def cluster_news_into_storylines(all_news_list, memory):
     if not raw_response: return [], None
     
     try:
-        storylines_with_indices = json.loads(raw_response)
+        # ⬇️⬇️⬇️ ИСПРАВЛЕННАЯ ЛОГИКА ПАРСИНГА И ВОЗВРАТА ⬇️⬇️⬇️
+        data = json.loads(raw_response)
+        
+        storylines_with_indices = data.get("storylines", [])
+        main_event_query = data.get("main_event_query") # Извлекаем главную тему
         
         storylines = []
         for storyline in storylines_with_indices:
-            # Собираем текст новостей по индексам
             indices = storyline.get("news_indices", [])
             news_texts = "\n\n---\n\n".join([all_news_list[i] for i in indices if i < len(all_news_list)])
-            
-            # Добавляем полный текст в наш объект
             storyline['news_texts'] = news_texts
             storylines.append(storyline)
             
@@ -200,13 +198,16 @@ def cluster_news_into_storylines(all_news_list, memory):
             if not is_duplicate: unique_storylines.append(storyline)
             
         print(f"Найдено {len(storylines)} сюжетов, из них {len(unique_storylines)} уникальных.")
-        return unique_storylines
+        # Всегда возвращаем два значения
+        return unique_storylines, main_event_query
+
     except (json.JSONDecodeError, KeyError) as e:
         print(f"Ошибка декодирования JSON ответа модели: {e}")
         if 'raw_response' in locals():
             print("Сырой ответ от модели:", raw_response)
+        # Всегда возвращаем два значения
         return [], None
-
+        
 def write_article_for_storyline(storyline):
     """Пишет статью по конкретному сюжету."""
     print(f"Этап 2: Написание статьи на тему '{storyline['title']}'...")
