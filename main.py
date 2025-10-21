@@ -544,26 +544,53 @@ async def run_rss_generator():
     
     print(f"\nВсего найдено {len(all_storyline_candidates)} кандидатов в сюжеты.")
     
+    # ⬇️⬇️⬇️ НАЧАЛО ЗАМЕНЫ: НОВЫЙ БЛОК ДЛЯ ЖЕСТКОЙ ФИЛЬТРАЦИИ ⬇️⬇️⬇️
+    final_candidates = []
+    current_embeddings = []
+    
+    # Жесткий порог для фильтрации дубликатов в текущем цикле
+    STRICT_SIMILARITY_THRESHOLD = 0.95 
+    
+    for storyline in all_storyline_candidates:
+        title = storyline.get("title")
+        if not title: continue
+        
+        # Получаем эмбеддинг для заголовка
+        title_embedding = get_embedding(title)
+        if not title_embedding:
+            # Если не смогли получить эмбеддинг, добавляем без сравнения.
+            final_candidates.append(storyline)
+            continue
+            
+        is_duplicate = False
+        # Сравниваем этот новый заголовок со всеми, что уже прошли проверку в этом цикле
+        for old_embedding in current_embeddings:
+            if cosine_similarity(title_embedding, old_embedding) > STRICT_SIMILARITY_THRESHOLD:
+                is_duplicate = True
+                print(f"Отфильтрован дубликат сюжета: '{title}'")
+                break
+        
+        if not is_duplicate:
+            final_candidates.append(storyline)
+            current_embeddings.append(title_embedding)
+            
+    print(f"После жесткой фильтрации осталось {len(final_candidates)} уникальных кандидатов.")
+    # ⬆️⬆️⬆️ КОНЕЦ НОВОГО БЛОКА ⬆️⬆️⬆️
+    
     processed_storylines = []
     used_news_for_digest = set()
-    if all_storyline_candidates:
-        print(f"Начинаем обработку {len(all_storyline_candidates)} уникальных сюжетов-кандидатов...")
-        for storyline in all_storyline_candidates:
+    
+    # ИСПОЛЬЗУЕМ final_candidates вместо all_storyline_candidates:
+    if final_candidates: 
+        print(f"Начинаем обработку {len(final_candidates)} уникальных сюжетов-кандидатов...")
+        for storyline in final_candidates: 
             if len(processed_storylines) >= 5:
                 print("Уже набрано 5 статей, прекращаем обработку сюжетов."); break
+            
             if len(storyline.get("news_texts", "")) < 50:
                 continue
             storyline_with_article = write_article_for_storyline(storyline)
             if not storyline_with_article: continue
-            
-            # ⬇️⬇️⬇️ ИСПРАВЛЕНИЕ ЗДЕСЬ ⬇️⬇️⬇️
-            article_parts = storyline_with_article['article'].split('\n', 1)
-            title_part = article_parts[0] if article_parts else ""
-            full_text_part = article_parts[1] if len(article_parts) > 1 else ""
-
-            if len(full_text_part.split()) < 30:
-                print(f"Пропускаем статью '{title_part}': сгенерированный текст слишком короткий.")
-                continue
 
             used_news_for_digest.update(storyline.get("news_texts", "").split("\n\n---\n\n"))
             final_storyline = await find_real_photo_on_google(storyline_with_article)
