@@ -568,19 +568,23 @@ async def run_rss_generator():
     if not unique_posts or len(unique_posts) < 3:
         print("Новых постов для обработки недостаточно."); return
 
-    # ⬇️⬇️⬇️ ЗАМЕНЯЕМ ВЕСЬ БЛОК НА ЕДИНЫЙ ЗАПРОС ⬇️⬇️⬇️
-    print(f"Обрабатываем {len(unique_posts)} уникальных постов одним блоком...")
+   # "Разделяй и властвуй"
+    mid_index = len(unique_posts) // 2
+    news_batch_1 = unique_posts[:mid_index]
+    news_batch_2 = unique_posts[mid_index:]
     
-    all_storyline_candidates, main_event_query = await cluster_news_into_storylines(
-        unique_posts, # Передаем ВСЕ уникальные посты сразу
-        dict(list(title_memory.items())[-70:])
-    )
+    print(f"Разделяем уникальные новости на две пачки: {len(news_batch_1)} и {len(news_batch_2)} постов.")
     
-    # Убедимся, что это список
-    all_storyline_candidates = all_storyline_candidates or []
-    # ⬆️⬆️⬆️ КОНЕЦ ЗАМЕНЫ ⬆️⬆️⬆️
+    # Выполняем запросы последовательно
+    print("\n--- Обработка первой пачки новостей ---")
+    storylines1, query1 = await cluster_news_into_storylines(news_batch_1, dict(list(title_memory.items())[-70:]))
     
-    print(f"\nВсего найдено {len(all_storyline_candidates)} кандидатов в сюжеты.")
+    print("\n--- Обработка второй пачки новостей ---")
+    storylines2, query2 = await cluster_news_into_storylines(news_batch_2, dict(list(title_memory.items())[-70:]))
+    
+    # Объединяем результаты
+    all_storyline_candidates = (storylines1 or []) + (storylines2 or [])
+    main_event_query = query1 or query2
     
     # ⬇️⬇️⬇️ НАЧАЛО ЗАМЕНЫ: НОВЫЙ БЛОК ДЛЯ ЖЕСТКОЙ ФИЛЬТРАЦИИ ⬇️⬇️⬇️
     final_candidates = []
