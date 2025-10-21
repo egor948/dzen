@@ -26,6 +26,19 @@ CHANNELS_LIST = [
 ]
 CHANNELS = sorted(list(set(CHANNELS_LIST)))
 
+# === ДОБАВЛЕНО/ОБНОВЛЕНО: Фразы для фильтрации рекламы/спама ===
+SPAM_PHRASES = [
+    "каппер", "прогноз на матч", "бесплатно", "заработок", "ставка на спорт", "налетай", "подписка", 
+    "договорной матч", "слив инфы", "бот для ставок", "криптовалюта", "трейдинг", "платная инфа", 
+    "подписаться", "подпишись", "подпишитесь", "экспресс", "ординар", "коэффициент", "коэф", 
+    "проходимость", "железка", "аналитика", "раскрутка счета", "плюсовой аккаунт", "гарантии выигрыша", 
+    "верификатор", "без вложений", "пассивный доход", "инвестиции", "быстрые деньги", "схема", 
+    "миллионы", "вывод средств", "гарантированный доход", "финансовые гарантии", "окупаемость", 
+    "с нуля", "легкие деньги", "халява", "розыгрыш", "подарок", "бонус", "приватный канал", 
+    "закрытый клуб", "VIP-чат", "секретная стратегия", "инсайд", "доступ навсегда", "жми", 
+    "переходи", "кликни", "заходи", "доступ ограничен", "успей", "пока не удалили", 
+    "последние места", "жми на ссылку", "тг канал", "тг-канал", "телеграм канал", "телеграм-канал" ] 
+
 # ================== API Ключи ==================
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 CF_ACCOUNT_ID = os.environ.get("CF_ACCOUNT_ID", "").strip()
@@ -100,6 +113,18 @@ async def get_channel_posts():
     unique_texts = set()
     now = datetime.datetime.now(datetime.timezone.utc)
     cutoff = now - timedelta(hours=1)
+    
+    # === ДОБАВЛЕНО: Функция для проверки спама ===
+    def is_spam(text):
+        lower_text = text.lower()
+        if len(text.split()) < 20: # Слишком короткие посты часто бывают рекламой
+            return True
+        for phrase in SPAM_PHRASES:
+            if phrase in lower_text:
+                return True
+        return False
+    # ============================================
+
     async with client:
         for channel_name in CHANNELS:
             print(f"Парсинг канала: {channel_name}...")
@@ -107,6 +132,12 @@ async def get_channel_posts():
                 async for msg in client.iter_messages(channel_name, limit=50):
                     if msg.date < cutoff: break
                     if msg.text and msg.text not in unique_texts:
+                        
+                        # === ИСПОЛЬЗОВАНИЕ ФИЛЬТРАЦИИ ===
+                        if is_spam(msg.text):
+                            continue
+                        # ===============================
+
                         unique_texts.add(msg.text)
                         candidate_posts.append(msg.text.strip())
             except Exception as e:
@@ -271,19 +302,22 @@ def write_article_for_storyline(storyline):
             
     is_bad_title = len(title) > 120 or (len(title.split()) > 1 and sum(1 for word in title.split() if word and word[0].isupper()) / len(title.split()) > 0.6)
     if is_bad_title:
+        # Извлекаем только тело статьи
+        body_lines = lines[body_start_index:] if body_start_index != -1 and body_start_index < len(lines) else []
+        body = '\n'.join(body_lines).strip()
+        
         print(f"Обнаружен плохой заголовок: '{title}'. Запрашиваем новый...")
-        remake_prompt = f"Придумай короткий (5-10 слов), интригующий и понятный заголовок на русском языке для этой статьи:\n\n{cleaned_article_text}"
-        # === ИСПРАВЛЕНИЕ 2: Увеличиваем токены до 150 ===
+        remake_prompt = f"Придумай короткий (5-10 слов), интригующий и понятный заголовок на русском языке для этой статьи:\n\n{body}" # <-- ИСПОЛЬЗУЕМ {body} вместо {cleaned_article_text}
         new_title_response = _call_gemini_ai(remake_prompt, max_tokens=150) 
         
         if new_title_response:
             new_title = new_title_response.strip().replace('"', '')
             print(f"Новый заголовок: '{new_title}'")
-            body_lines = lines[body_start_index:] if body_start_index != -1 and body_start_index < len(lines) else []
-            body = '\n'.join(body_lines).strip()
+            # body уже определен выше
             storyline['article'] = f"{new_title}\n{body}"
         else:
             storyline['article'] = cleaned_article_text
+   
     else:
         storyline['article'] = cleaned_article_text
         
