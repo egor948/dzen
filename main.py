@@ -456,7 +456,7 @@ def update_rss_file(processed_storylines):
         channel = ET.SubElement(root, "channel")
         ET.SubElement(channel, "title").text = "НА БАНКЕ"
         ET.SubElement(channel, "link").text = GITHUB_REPO_URL
-        ET.SubElement(channel, "description").text = "«НА БАНКЕ». Все главные футбольные новости и слухи в одном месте. Трансферы, инсайды и честное мнение. Говорим о футболе так, как будто сидим с тобой на скамейке запасных."
+        ET.SubElement(channel, "description").text = "НА БАНКЕ. ⚽️ Всё, что вы пропустили в большом футболе: от громких трансферов до разборов тактики. Главные новости европейских лиг и инсайды. Подпишись, чтобы быть в курсе."
     
     for storyline in reversed(processed_storylines):
         article_text = storyline.get('article')
