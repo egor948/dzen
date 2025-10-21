@@ -364,7 +364,13 @@ async def find_real_photo_on_google(storyline):
     if not GOOGLE_API_KEY or not GOOGLE_CSE_ID: return None
     queries = storyline.get("search_queries", [])
     if not queries: return None
-    for query in queries:
+    
+    # НОВОЕ: Ограничиваем количество попыток поиска на статью, чтобы не превысить суточный лимит
+    MAX_SEARCH_ATTEMPTS = 2 
+    
+    # Используем срез [0:MAX_SEARCH_ATTEMPTS] для ограничения циклов поиска
+    for query in queries[:MAX_SEARCH_ATTEMPTS]: 
+        
         # ДОБАВЛЕНО: Задержка между запросами к API (1.5 секунды) для обхода лимита 429
         await asyncio.sleep(1.5) 
         
@@ -378,18 +384,24 @@ async def find_real_photo_on_google(storyline):
             data = response.json()
             if "items" in data and data["items"]:
                 image_url = data["items"][0]["link"]
+                # Проверяем, что это действительно изображение
                 if not image_url.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
                     continue
+                
                 image_response = requests.get(image_url, timeout=60, headers={'User-Agent': 'Mozilla/5.0'})
                 image_response.raise_for_status()
+                
                 os.makedirs(IMAGE_DIR, exist_ok=True)
                 timestamp = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
                 image_filename = f"{timestamp}.jpg"
                 image_path = os.path.join(IMAGE_DIR, image_filename)
                 with open(image_path, "wb") as f: f.write(image_response.content)
+                
                 print(f"Фото из Google успешно сохранено: {image_path}")
                 storyline['image_url'] = f"{GITHUB_REPO_URL.replace('github.com', 'raw.githubusercontent.com')}/main/images/{image_filename}"
-                return storyline
+                
+                return storyline # Успех: Возвращаем и прекращаем поиск
+                
         except requests.exceptions.RequestException as e:
             print(f"Ошибка при обращении к Google Search API с запросом '{query}': {e}")
             
@@ -398,10 +410,11 @@ async def find_real_photo_on_google(storyline):
                 print("Обнаружен лимит 429. Ждем 10 секунд перед продолжением.")
                 await asyncio.sleep(10)
                 
-            continue
+            continue # Переходим к следующему запросу
+            
     print("В Google Images ничего не найдено.")
     return None
-
+    
 def update_rss_file(processed_storylines):
     ET.register_namespace('yandex', 'http://news.yandex.ru')
     ET.register_namespace('media', 'http://search.yahoo.com/mrss/')
