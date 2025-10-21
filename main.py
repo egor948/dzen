@@ -12,6 +12,7 @@ import json
 import re
 import sys
 import google.generativeai as genai
+import time # ДОБАВИТЬ ЭТУ СТРОКУ В НАЧАЛО ФАЙЛА
 
 # ================= НАСТРОЙКИ =================
 # Telegram-парсер инициализируется по необходимости.
@@ -266,7 +267,7 @@ async def cluster_news_into_storylines(news_batch, memory):
 def write_article_for_storyline(storyline):
     print(f"Этап 2: Написание статьи на тему '{storyline['title']}'...")
     
-    # === ИСПРАВЛЕНИЕ 1: Извлекаем новостные сводки ===
+    # Извлекаем новостные сводки
     news_content = storyline.get('news_texts', 'Нет новостных сводок.')
     
     prompt = f"""**Роль:**
@@ -275,7 +276,7 @@ def write_article_for_storyline(storyline):
 **Главные правила:**
 1.  **Пиши только на безупречном РУССКОМ языке.**
 2.  **Основывайся СТРОГО на фактах из предоставленных новостей.** Не выдумывай детали.
-3.  **Центральная Идея: ** Сосредоточься исключительно на ОДНОЙ, ГЛАВНОЙ ТЕМЕ статьи или сюжета.  **Дисциплина Релевантности:** Строго ИГНОРИРУЙ все второстепенные, бессвязные, нерелевантные или отвлекающие детали (так называемый «информационный шум»), которые не развивают и не поддерживают основную мысль текста. **Проверка:** Включай только те факты, которые напрямую служат развитию ключевой идеи. Если деталь не влияет на понимание главной темы, она должна быть исключена.).
+3.  **КЛЮЧЕВОЕ ПРАВИЛО:** Сосредоточься только на **ОДНОЙ, ГЛАВНОЙ ТЕМЕ** сюжета. **НИКОГДА** не включай в финальный текст мелкие, бессвязные, нерелевантные или "мусорные" детали, которые не развивают основную мысль статьи.
 
 **ТРЕБОВАНИЯ К ТЕКСТУ:**
 
@@ -300,14 +301,24 @@ def write_article_for_storyline(storyline):
 *   **НИКОГДА** не добавляй дисклеймеры или примечания.
 *   **НИКОГДА** не пиши тексты рекламного, мошеннического, капперского или букмекерского характера. **Полный запрет** на любые призывы к ставкам, инвестициям или переходу по ссылкам.
 
-
-**НОВОСТНЫЕ СВОДКИ ДЛЯ АНАЛИЗА И ПЕРЕРАБОТКИ:**
+НОВОСТНЫЕ СВОДКИ ДЛЯ АНАЛИЗА И ПЕРЕРАБОТКИ:
 ---
 {news_content}
 ---
 """
-    raw_article_text = _call_gemini_ai(prompt, max_tokens=3500)
-    if not raw_article_text: return None
+    
+    # ⬇️⬇️⬇️ ИЗМЕНЕНИЕ: ДВЕ ПОПЫТКИ ГЕНЕРАЦИИ С ЗАДЕРЖКОЙ ⬇️⬇️⬇️
+    raw_article_text = None
+    for attempt in range(2):
+        raw_article_text = _call_gemini_ai(prompt, max_tokens=3500)
+        if raw_article_text:
+            break
+        print(f"Попытка {attempt+1} генерации статьи не удалась. Повтор через 5 секунд.")
+        if attempt == 0:
+            time.sleep(5) # Только для первой попытки, чтобы не задерживать финальный сбой
+            
+    if not raw_article_text: return None 
+    # ⬆️⬆️⬆️ КОНЕЦ ИЗМЕНЕНИЯ ⬆️⬆️⬆️
     
     cleaned_article_text = clean_ai_artifacts(raw_article_text)
     
@@ -321,27 +332,23 @@ def write_article_for_storyline(storyline):
             
     is_bad_title = len(title) > 120 or (len(title.split()) > 1 and sum(1 for word in title.split() if word and word[0].isupper()) / len(title.split()) > 0.6)
     if is_bad_title:
-        # Извлекаем только тело статьи
-        body_lines = lines[body_start_index:] if body_start_index != -1 and body_start_index < len(lines) else []
-        body = '\n'.join(body_lines).strip()
-        
         print(f"Обнаружен плохой заголовок: '{title}'. Запрашиваем новый...")
-        remake_prompt = f"Придумай короткий (5-10 слов), интригующий и понятный заголовок на русском языке для этой статьи:\n\n{body}" # <-- ИСПОЛЬЗУЕМ {body} вместо {cleaned_article_text}
-        new_title_response = _call_gemini_ai(remake_prompt, max_tokens=150) 
+        remake_prompt = f"Придумай короткий (5-10 слов), интригующий и понятный заголовок на русском языке для этой статьи:\n\n{cleaned_article_text}"
+        new_title_response = _call_gemini_ai(remake_prompt, max_tokens=150)
         
         if new_title_response:
             new_title = new_title_response.strip().replace('"', '')
             print(f"Новый заголовок: '{new_title}'")
-            # body уже определен выше
+            body_lines = lines[body_start_index:] if body_start_index != -1 and body_start_index < len(lines) else []
+            body = '\n'.join(body_lines).strip()
             storyline['article'] = f"{new_title}\n{body}"
         else:
             storyline['article'] = cleaned_article_text
-   
     else:
         storyline['article'] = cleaned_article_text
         
     return storyline
-
+    
 def write_summary_article(remaining_news, main_event_query):
     print("План Б: Создание общей новостной сводки...")
     storyline = {"title": "Общая сводка новостей", "category": "Дайджест", "search_queries": [main_event_query] if main_event_query else ["latest football news"]}
