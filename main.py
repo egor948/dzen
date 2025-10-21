@@ -526,18 +526,26 @@ async def run_rss_generator():
             used_news_for_digest.update(storyline.get("news_texts", "").split("\n\n---\n\n"))
             final_storyline = await find_real_photo_on_google(storyline_with_article)
             processed_storylines.append(final_storyline or storyline_with_article)
-    
     if not processed_storylines:
         print("Ни один из сюжетов не прошел фильтры. Переходим к плану Б.")
-        remaining_news_list = [news for news in all_news_list if news not in digest_memory[-70:]]
+        
+        # 1. Сначала собираем все уникальные новости, которые еще не были в дайджесте
+        all_news_for_digest = [news for news in unique_posts 
+                               if news not in digest_memory[-150:]]
+        
+        # 2. Оставшиеся новости: те, что не были успешно использованы в индивидуальных статьях
+        remaining_news_list = [news for news in all_news_for_digest if news not in used_news_for_digest]
+        
         if remaining_news_list:
             remaining_news_text = "\n\n---\n\n".join(remaining_news_list)
-            news_sample_for_prompt = '\n'.join(all_news_list[:20])
+            
+            # Используем оставшиеся новости для определения главной темы
+            news_sample_for_prompt = '\n'.join(remaining_news_list[:20])
             main_event_prompt = f"Проанализируй эти новости и верни ОДНУ главную персону или событие на английском для поиска фото:\n\n{news_sample_for_prompt}"
             main_event_query_response = _call_gemini_ai(main_event_prompt, max_tokens=100)
-            main_event_query = main_event_query_response.strip() if main_event_query_response else "latest football news"
+            main_event_query_final = main_event_query_response.strip() if main_event_query_response else "latest football news"
 
-            summary_storyline = write_summary_article(remaining_news_text, main_event_query)
+            summary_storyline = write_summary_article(remaining_news_text, main_event_query_final)
             if summary_storyline:
                 final_summary = await find_real_photo_on_google(summary_storyline)
                 processed_storylines.append(final_summary or summary_storyline)
