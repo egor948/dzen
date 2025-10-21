@@ -447,19 +447,16 @@ async def run_rss_generator():
     
     print(f"Разделяем уникальные новости на две пачки: {len(news_batch_1)} и {len(news_batch_2)} постов.")
     
-    # Используем asyncio.gather для асинхронного выполнения (но сами функции внутри - синхронные)
-    storyline_candidates_results = await asyncio.gather(
-        asyncio.to_thread(cluster_news_into_storylines, news_batch_1, dict(list(title_memory.items())[-70:])),
-        asyncio.to_thread(cluster_news_into_storylines, news_batch_2, dict(list(title_memory.items())[-70:]))
-    )
+   # Выполняем запросы последовательно, а не параллельно
+    print("\n--- Обработка первой пачки новостей ---")
+    storylines1, query1 = cluster_news_into_storylines(news_batch_1, dict(list(title_memory.items())[-70:]))
     
-    all_storyline_candidates = []
-    main_event_query = None
-    for result_tuple in storyline_candidates_results:
-        if result_tuple:
-            storylines, query = result_tuple
-            if storylines: all_storyline_candidates.extend(storylines)
-            if query and not main_event_query: main_event_query = query
+    print("\n--- Обработка второй пачки новостей ---")
+    storylines2, query2 = cluster_news_into_storylines(news_batch_2, dict(list(title_memory.items())[-70:]))
+    
+    # Объединяем результаты
+    all_storyline_candidates = (storylines1 or []) + (storylines2 or [])
+    main_event_query = query1 or query2
     
     print(f"\nВсего найдено {len(all_storyline_candidates)} кандидатов в сюжеты.")
     
