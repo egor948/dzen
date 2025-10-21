@@ -348,10 +348,11 @@ def write_summary_article(remaining_news, main_event_query):
     prompt = f"""Ты — первоклассный спортивный журналист. Напиши одну общую статью-дайджест.
 
 ТРЕБОВАНИЯ:
-1.  Придумай яркий и интригующий заголовок, отражающий САМОЕ интересное событие.
-2.  В статье кратко, в 2-3 предложениях, расскажи о 3-4 самых заметных новостях.
-3.  Статья должна быть на безупречном РУССКОМ языке и без формальных подзаголовков.
-4.  **Полный запрет** на рекламные, капперские или мошеннические тексты. Никаких призывов к ставкам, инвестициям или переходу по ссылкам.
+1.  **Сначала проанализируй НОВЫЙ ПОТОК НОВОСТЕЙ и выбери 5-7 САМЫХ ИНТЕРЕСНЫХ И СУЩЕСТВЕННЫХ.** Отбрось все второстепенные, короткие или маловажные сообщения.
+2.  Придумай яркий и интригующий заголовок, отражающий САМОЕ интересное событие.
+3.  В статье кратко, в 2-3 предложениях, расскажи о 3-5 самых заметных новостях, выбранных на шаге 1.
+4.  Статья должна быть на безупречном РУССКОМ языке и без формальных подзаголовков.
+5.  Полный запрет на рекламные, капперские или мошеннические тексты. Никаких призывов к ставкам, инвестициям или переходу по ссылкам.
 
 НОВЫЙ ПОТОК НОВОСТЕЙ:
 ---
@@ -674,30 +675,30 @@ async def run_rss_generator():
     if not processed_storylines:
         print("Ни один из сюжетов не прошел фильтры. Переходим к плану Б.")
         
-        # 1. Сначала собираем все уникальные новости, которые еще не были в дайджесте
-        all_news_for_digest = [news for news in unique_posts 
-                               if news not in digest_memory[-150:]]
-        
-        # 2. Оставшиеся новости: те, что не были успешно использованы в индивидуальных статьях
-        remaining_news_list = [news for news in all_news_for_digest if news not in used_news_for_digest]
+        # 1. Список всех новостей, которые потенциально можно использовать
+        remaining_news_list = [news for news in unique_posts if news not in used_news_for_digest] # <- Должен быть код здесь
         
         if remaining_news_list:
-            remaining_news_text = "\n\n---\n\n".join(remaining_news_list)
             
-            # Используем оставшиеся новости для определения главной темы
-            news_sample_for_prompt = '\n'.join(remaining_news_list[:20])
-            main_event_prompt = f"Проанализируй эти новости и верни ОДНУ главную персону или событие на английском для поиска фото:\n\n{news_sample_for_prompt}"
-            main_event_query_response = _call_gemini_ai(main_event_prompt, max_tokens=100)
-            main_event_query_final = main_event_query_response.strip() if main_event_query_response else "latest football news"
+            # ⬇️⬇️⬇️ ИСПРАВЛЕННЫЙ БЛОК: Ограничиваем новости для анализа ⬇️⬇️⬇️
+            # Отправляем максимум 20 самых свежих новостей на анализ Gemini, чтобы избежать MAX_TOKENS
+            news_for_digest_analysis = remaining_news_list[:20]
+            remaining_news_text = "\n\n---\n\n".join(news_for_digest_analysis)
+            
+            # Используем main_event_query, полученный на этапе кластеризации.
+            main_event_query_final = main_event_query or "latest football news"
+            
+            print(f"План Б: Создание общей новостной сводки, отправка {len(news_for_digest_analysis)} новостей на анализ...")
 
+            # ⬇️⬇️⬇️ summary_storyline = write_summary_article(remaining_news_text, main_event_query_final) ⬇️⬇️⬇️
             summary_storyline = write_summary_article(remaining_news_text, main_event_query_final)
+            
             if summary_storyline:
                 final_summary = await find_real_photo_on_google(summary_storyline)
                 processed_storylines.append(final_summary or summary_storyline)
                 digest_memory.extend(remaining_news_list)
         else:
             print("Недостаточно новых новостей для дайджеста.")
-
     if not processed_storylines:
         print("Не удалось сгенерировать ни одной статьи."); return
 
