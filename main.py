@@ -246,6 +246,11 @@ def write_article_for_storyline(storyline):
 *   **НИКОГДА** не используй формальные подзаголовки ("Введение", "Заключение", "Анализ").
 *   **НИКОГДА** не используй Markdown (`#`, `*`). Только HTML-теги `<b>` и `</b>` для жирного шрифта.
 *   **НИКОГДА** не добавляй дисклеймеры или примечания.
+
+**НОВОСТНЫЕ СВОДКИ ДЛЯ АНАЛИЗА И ПЕРЕРАБОТКИ:**
+---
+{news_content}
+---
 """
     raw_article_text = _call_gemini_ai(prompt, max_tokens=3500)
     if not raw_article_text: return None
