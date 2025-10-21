@@ -160,12 +160,18 @@ def clean_ai_artifacts(text):
     return cleaned_text
 
 async def cluster_news_into_storylines(news_batch, memory):
+    """Группирует пачку новостей в сюжеты."""
     print(f"Группируем {len(news_batch)} новостей в сюжеты...")
     numbered_news = "\n\n---\n\n".join([f"Новость #{i}:\n{news}" for i, news in enumerate(news_batch)])
+    
+    # ⬇️⬇️⬇️ УПРОЩЕННЫЙ ПРОМПТ ДЛЯ JSON MODE ⬇️⬇️⬇️
     prompt = f"""Ты — главный редактор. Проанализируй пронумерованные новости ниже.
 Найди столько уникальных сюжетов, сколько сможешь (но не более пяти).
-Для каждого сюжета верни JSON-объект с полями: `title`, `category`, `search_queries`, `news_indices`.
+
+Для каждого сюжета верни JSON-объект с полями: `title`, `category`, `search_queries` и `news_indices`.
+
 Твой ответ ДОЛЖЕН БЫТЬ ТОЛЬКО в формате JSON-массива.
+
 ПРОНУМЕРОВАННЫЕ НОВОСТИ:
 ---
 {numbered_news}
@@ -173,16 +179,22 @@ async def cluster_news_into_storylines(news_batch, memory):
 """
     raw_response = _call_gemini_ai(prompt, use_json_mode=True, max_tokens=8192)
     if not raw_response: return [], None
+    
+    # ⬇️⬇️⬇️ ИСПРАВЛЕНИЕ ЗДЕСЬ ⬇️⬇️⬇️
     try:
-        data = json.loads(raw_response)
-        storylines_with_indices = data.get("storylines", [])
-        main_event_query = data.get("main_event_query")
+        # Gemini в JSON mode возвращает чистый JSON, парсим его напрямую
+        storylines_with_indices = json.loads(raw_response)
+        
+        # main_event_query больше не генерируется на этом этапе, возвращаем None
+        main_event_query = None 
+        
         storylines = []
         for storyline in storylines_with_indices:
             indices = storyline.get("news_indices", [])
             news_texts = "\n\n---\n\n".join([news_batch[i] for i in indices if i < len(news_batch)])
             storyline['news_texts'] = news_texts
             storylines.append(storyline)
+            
         unique_storylines = []
         for storyline in storylines:
             title = storyline.get("title")
@@ -196,10 +208,15 @@ async def cluster_news_into_storylines(news_batch, memory):
                 if cosine_similarity(title_embedding, old_embedding) > SIMILARITY_THRESHOLD:
                     is_duplicate = True; break
             if not is_duplicate: unique_storylines.append(storyline)
+            
         print(f"Найдено {len(storylines)} сюжетов, из них {len(unique_storylines)} уникальных.")
         return unique_storylines, main_event_query
+
     except (json.JSONDecodeError, KeyError) as e:
-        print(f"Ошибка декодирования JSON: {e}"); return [], None
+        print(f"Ошибка декодирования JSON: {e}")
+        if 'raw_response' in locals():
+            print("Сырой ответ от модели:", raw_response)
+        return [], None
 
 def write_article_for_storyline(storyline):
     print(f"Этап 2: Написание статьи на тему '{storyline['title']}'...")
