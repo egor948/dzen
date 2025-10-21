@@ -269,7 +269,7 @@ def write_article_for_storyline(storyline):
     if is_bad_title:
         print(f"Обнаружен плохой заголовок: '{title}'. Запрашиваем новый...")
         remake_prompt = f"Придумай короткий (5-10 слов), интригующий и понятный заголовок на русском языке для этой статьи:\n\n{cleaned_article_text}"
-        new_title_response = _call_gemini_ai(remake_prompt, max_tokens=60)
+        new_title_response = _call_gemini_ai(remake_prompt, max_tokens=150)
         
         if new_title_response:
             new_title = new_title_response.strip().replace('"', '')
