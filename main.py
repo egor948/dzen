@@ -361,22 +361,31 @@ def write_summary_article(remaining_news, main_event_query):
     return None
 
 async def find_real_photo_on_google(storyline):
-    await asyncio.sleep(2)
+    # await asyncio.sleep(2) # УДАЛИТЕ эту строку
     if not GOOGLE_API_KEY or not GOOGLE_CSE_ID: return None
     queries = storyline.get("search_queries", [])
     if not queries: return None
+    
     for query in queries:
+        # ⬇️⬇️⬇️ ДОБАВЛЕНО: Задержка между запросами к API (1.5 секунды) ⬇️⬇️⬇️
+        await asyncio.sleep(1.5)
+        
         print(f"Этап 3 (Основной): Поиск фото в Google по запросу: '{query}'...")
         url = "https://www.googleapis.com/customsearch/v1"
         params = {"key": GOOGLE_API_KEY, "cx": GOOGLE_CSE_ID, "q": query, "searchType": "image", "num": 1, "imgSize": "large"}
+        
         try:
-            response = requests.get(url, params=params, timeout=30)
-            response.raise_for_status()
-            data = response.json()
-            if "items" in data and data["items"]:
-                image_url = data["items"][0]["link"]
-                if not image_url.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
-                    continue
+            # ... (requests.get и обработка ответа) ...
+        except requests.exceptions.RequestException as e:
+            print(f"Ошибка при обращении к Google Search API с запросом '{query}': {e}")
+            
+            # ⬇️⬇️⬇️ ДОБАВЛЕНО: Если ошибка 429, ждем дольше ⬇️⬇️⬇️
+            if e.response is not None and e.response.status_code == 429:
+                print("Обнаружен лимит 429. Ждем 10 секунд перед продолжением.")
+                await asyncio.sleep(10)
+            
+            continue
+            
                 image_response = requests.get(image_url, timeout=60, headers={'User-Agent': 'Mozilla/5.0'})
                 image_response.raise_for_status()
                 os.makedirs(IMAGE_DIR, exist_ok=True)
@@ -474,6 +483,8 @@ def run_telegram_poster(storylines_json):
 
     for storyline in storylines:
         article_text = storyline.get('article')
+        image_url = storyline.get('image_url') # Получаем URL фото
+        
         if not article_text: continue
         
         lines = article_text.strip().split('\n')
@@ -491,10 +502,31 @@ def run_telegram_poster(storylines_json):
             print(f"Пропускаем отправку в Telegram статьи '{title}': основной текст слишком короткий.")
             continue
         
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        text = f"<b>{title}</b>\n\n{full_text}"
-        if len(text) > 4096: text = text[:4093] + "..."
-        payload = { 'chat_id': f"@{TELEGRAM_CHANNEL_USERNAME}", 'text': text, 'parse_mode': 'HTML' }
+        # 1. Формируем подпись
+        caption = f"<b>{title}</b>\n\n{full_text}"
+        
+        # 2. Определяем, как будем постить
+        if image_url and len(caption) <= 1024:
+            # Вариант A: Есть фото И подпись влезает в лимит (1024)
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+            payload = { 
+                'chat_id': f"@{TELEGRAM_CHANNEL_USERNAME}", 
+                'photo': image_url, 
+                'caption': caption, 
+                'parse_mode': 'HTML' 
+            }
+        else:
+            # Вариант B: Нет фото ИЛИ подпись слишком длинная. Отправляем текст.
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+            
+            # Если подпись длиннее 4096 (лимит sendMessage), обрезаем
+            if len(caption) > 4096: caption = caption[:4093] + "..."
+                
+            payload = { 
+                'chat_id': f"@{TELEGRAM_CHANNEL_USERNAME}", 
+                'text': caption, 
+                'parse_mode': 'HTML' 
+            }
             
         try:
             response = requests.post(url, json=payload, timeout=60)
@@ -536,24 +568,17 @@ async def run_rss_generator():
     if not unique_posts or len(unique_posts) < 3:
         print("Новых постов для обработки недостаточно."); return
 
-    # "Разделяй и властвуй"
-    mid_index = len(unique_posts) // 2
-    news_batch_1 = unique_posts[:mid_index]
-    news_batch_2 = unique_posts[mid_index:]
+    # ⬇️⬇️⬇️ ЗАМЕНЯЕМ ВЕСЬ БЛОК НА ЕДИНЫЙ ЗАПРОС ⬇️⬇️⬇️
+    print(f"Обрабатываем {len(unique_posts)} уникальных постов одним блоком...")
     
-    print(f"Разделяем уникальные новости на две пачки: {len(news_batch_1)} и {len(news_batch_2)} постов.")
+    all_storyline_candidates, main_event_query = await cluster_news_into_storylines(
+        unique_posts, # Передаем ВСЕ уникальные посты сразу
+        dict(list(title_memory.items())[-70:])
+    )
     
-    # ⬇️⬇️⬇️ ИСПРАВЛЕНИЕ ЗДЕСЬ: Добавляем 'await' для асинхронных вызовов ⬇️⬇️⬇️
-    # Выполняем запросы последовательно
-    print("\n--- Обработка первой пачки новостей ---")
-    storylines1, query1 = await cluster_news_into_storylines(news_batch_1, dict(list(title_memory.items())[-70:]))
-    
-    print("\n--- Обработка второй пачки новостей ---")
-    storylines2, query2 = await cluster_news_into_storylines(news_batch_2, dict(list(title_memory.items())[-70:]))
-    
-    # Объединяем результаты
-    all_storyline_candidates = (storylines1 or []) + (storylines2 or [])
-    main_event_query = query1 or query2
+    # Убедимся, что это список
+    all_storyline_candidates = all_storyline_candidates or []
+    # ⬆️⬆️⬆️ КОНЕЦ ЗАМЕНЫ ⬆️⬆️⬆️
     
     print(f"\nВсего найдено {len(all_storyline_candidates)} кандидатов в сюжеты.")
     
