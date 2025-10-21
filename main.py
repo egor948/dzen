@@ -663,8 +663,8 @@ async def run_rss_generator():
         json.dump(digest_memory, f, ensure_ascii=False)
     print(f"Память дайджестов обновлена.")
 
-    if len(news_memory) > 250:
-        keys_to_keep = list(news_memory.keys())[-250:]
+    if len(news_memory) > 120:
+        keys_to_keep = list(news_memory.keys())[-120:]
         news_memory = {k: news_memory[k] for k in keys_to_keep}
     with open(NEWS_MEMORY_PATH, 'w', encoding='utf-8') as f:
         json.dump(news_memory, f, ensure_ascii=False)
