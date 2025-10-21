@@ -391,7 +391,7 @@ async def find_real_photo_on_google(storyline):
     if not queries: return None
 
     # НОВОЕ: Ограничиваем количество попыток поиска на статью
-    MAX_SEARCH_ATTEMPTS = 2 
+    MAX_SEARCH_ATTEMPTS = 3 
     
     for api_key, cse_id in VALID_KEYS:
         is_backup = (api_key == API_KEYS[1][0] if len(API_KEYS) > 1 else False)
