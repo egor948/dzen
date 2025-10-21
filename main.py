@@ -585,6 +585,7 @@ async def run_rss_generator():
     # Объединяем результаты
     all_storyline_candidates = (storylines1 or []) + (storylines2 or [])
     main_event_query = query1 or query2
+    print(f"\nВсего найдено {len(all_storyline_candidates)} кандидатов в сюжеты.")
     
     # ⬇️⬇️⬇️ НАЧАЛО ЗАМЕНЫ: НОВЫЙ БЛОК ДЛЯ ЖЕСТКОЙ ФИЛЬТРАЦИИ ⬇️⬇️⬇️
     final_candidates = []
