@@ -397,7 +397,7 @@ async def find_real_photo_on_google(storyline):
             
             print(f"Этап 3 (Основной): Поиск фото в Google по запросу: '{query}'...")
             url = "https://www.googleapis.com/customsearch/v1"
-            params = {"key": api_key, "cx": cse_id, "q": query, "searchType": "image", "num": 1, "imgSize": "large"}
+            params = {"key": api_key, "cx": cse_id, "q": query, "searchType": "image", "num": 1}
             
             try:
                 response = requests.get(url, params=params, timeout=30)
