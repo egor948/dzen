@@ -682,7 +682,7 @@ async def run_rss_generator():
             
             # ⬇️⬇️⬇️ ИСПРАВЛЕННЫЙ БЛОК: Ограничиваем новости для анализа ⬇️⬇️⬇️
             # Отправляем максимум 20 самых свежих новостей на анализ Gemini, чтобы избежать MAX_TOKENS
-            news_for_digest_analysis = remaining_news_list[:20]
+            news_for_digest_analysis = remaining_news_list[:10]
             remaining_news_text = "\n\n---\n\n".join(news_for_digest_analysis)
             
             # Используем main_event_query, полученный на этапе кластеризации.
