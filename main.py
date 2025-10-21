@@ -112,18 +112,28 @@ async def get_channel_posts():
     candidate_posts = []
     unique_texts = set()
     now = datetime.datetime.now(datetime.timezone.utc)
-    cutoff = now - timedelta(hours=1)
     
-    # === ДОБАВЛЕНО: Функция для проверки спама ===
+    # ⬇️⬇️⬇️ ИЗМЕНЕНО: Сбор новостей ТОЛЬКО за последний 1 час ⬇️⬇️⬇️
+    cutoff = now - timedelta(hours=1) 
+    
+    # === ИЗМЕНЕНО: Функция фильтрации спама (только слова + исключение для пресс-конференций) ===
     def is_spam(text):
+        if not text:
+            return True # Игнорируем пустые посты
+            
         lower_text = text.lower()
-        if len(text.split()) < 20: # Слишком короткие посты часто бывают рекламой
-            return True
+
+        # Если в тексте упоминается пресс-конференция, скорее всего, это не спам.
+        # Пропускаем такие посты, даже если в них случайно встретится какое-то из "спам-слов".
+        if "пресс-конференция" in lower_text or "пресс конференция" in lower_text:
+            return False
+
+        # Проверяем текст на наличие спам-фраз из списка
         for phrase in SPAM_PHRASES:
             if phrase in lower_text:
                 return True
         return False
-    # ============================================
+    # =========================================================================================
 
     async with client:
         for channel_name in CHANNELS:
@@ -133,10 +143,9 @@ async def get_channel_posts():
                     if msg.date < cutoff: break
                     if msg.text and msg.text not in unique_texts:
                         
-                        # === ИСПОЛЬЗОВАНИЕ ФИЛЬТРАЦИИ ===
+                        # Применяем фильтр спама
                         if is_spam(msg.text):
                             continue
-                        # ===============================
 
                         unique_texts.add(msg.text)
                         candidate_posts.append(msg.text.strip())
