@@ -445,7 +445,7 @@ async def run_rss_generator():
     news_batch_1 = unique_posts[:mid_index]
     news_batch_2 = unique_posts[mid_index:]
     
-    print(f"Разделяем уникальные новости на две пачки: {len(news_batch_1)} и {len(news_batch_2)} 
+    print(f"Разделяем уникальные новости на две пачки: {len(news_batch_1)} и {len(news_batch_2)} постов.")
     
     # ⬇️⬇️⬇️ ИСПРАВЛЕНИЕ ЗДЕСЬ: Добавляем 'await' для асинхронных вызовов ⬇️⬇️⬇️
     # Выполняем запросы последовательно
