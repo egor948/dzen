@@ -218,6 +218,10 @@ async def cluster_news_into_storylines(news_batch, memory):
 
 def write_article_for_storyline(storyline):
     print(f"Этап 2: Написание статьи на тему '{storyline['title']}'...")
+    
+    # === ИСПРАВЛЕНИЕ 1: Извлекаем новостные сводки ===
+    news_content = storyline.get('news_texts', 'Нет новостных сводок.')
+    
     prompt = f"""**Роль:**
 Ты — опытный контент-маркетолог и редактор Дзен-канала "НА БАНКЕ". Твоя задача — взять сухие новостные сводки и превратить их в "воздушный", динамичный и вирусный текст, который читатели досмотрят до конца.
 
@@ -269,7 +273,8 @@ def write_article_for_storyline(storyline):
     if is_bad_title:
         print(f"Обнаружен плохой заголовок: '{title}'. Запрашиваем новый...")
         remake_prompt = f"Придумай короткий (5-10 слов), интригующий и понятный заголовок на русском языке для этой статьи:\n\n{cleaned_article_text}"
-        new_title_response = _call_gemini_ai(remake_prompt, max_tokens=150)
+        # === ИСПРАВЛЕНИЕ 2: Увеличиваем токены до 150 ===
+        new_title_response = _call_gemini_ai(remake_prompt, max_tokens=150) 
         
         if new_title_response:
             new_title = new_title_response.strip().replace('"', '')
