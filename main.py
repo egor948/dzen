@@ -361,31 +361,25 @@ def write_summary_article(remaining_news, main_event_query):
     return None
 
 async def find_real_photo_on_google(storyline):
-    # await asyncio.sleep(2) # УДАЛИТЕ эту строку
     if not GOOGLE_API_KEY or not GOOGLE_CSE_ID: return None
     queries = storyline.get("search_queries", [])
     if not queries: return None
-    
     for query in queries:
-        # ⬇️⬇️⬇️ ДОБАВЛЕНО: Задержка между запросами к API (1.5 секунды) ⬇️⬇️⬇️
-        await asyncio.sleep(1.5)
+        # ДОБАВЛЕНО: Задержка между запросами к API (1.5 секунды) для обхода лимита 429
+        await asyncio.sleep(1.5) 
         
         print(f"Этап 3 (Основной): Поиск фото в Google по запросу: '{query}'...")
         url = "https://www.googleapis.com/customsearch/v1"
         params = {"key": GOOGLE_API_KEY, "cx": GOOGLE_CSE_ID, "q": query, "searchType": "image", "num": 1, "imgSize": "large"}
         
         try:
-            # ... (requests.get и обработка ответа) ...
-        except requests.exceptions.RequestException as e:
-            print(f"Ошибка при обращении к Google Search API с запросом '{query}': {e}")
-            
-            # ⬇️⬇️⬇️ ДОБАВЛЕНО: Если ошибка 429, ждем дольше ⬇️⬇️⬇️
-            if e.response is not None and e.response.status_code == 429:
-                print("Обнаружен лимит 429. Ждем 10 секунд перед продолжением.")
-                await asyncio.sleep(10)
-            
-            continue
-            
+            response = requests.get(url, params=params, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            if "items" in data and data["items"]:
+                image_url = data["items"][0]["link"]
+                if not image_url.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+                    continue
                 image_response = requests.get(image_url, timeout=60, headers={'User-Agent': 'Mozilla/5.0'})
                 image_response.raise_for_status()
                 os.makedirs(IMAGE_DIR, exist_ok=True)
@@ -398,6 +392,12 @@ async def find_real_photo_on_google(storyline):
                 return storyline
         except requests.exceptions.RequestException as e:
             print(f"Ошибка при обращении к Google Search API с запросом '{query}': {e}")
+            
+            # ДОБАВЛЕНО: Если ошибка 429, ждем дольше
+            if e.response is not None and e.response.status_code == 429:
+                print("Обнаружен лимит 429. Ждем 10 секунд перед продолжением.")
+                await asyncio.sleep(10)
+                
             continue
     print("В Google Images ничего не найдено.")
     return None
