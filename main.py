@@ -16,7 +16,7 @@ import google.generativeai as genai
 # ================= НАСТРОЙКИ =================
 # Telegram-парсер инициализируется по необходимости.
 CHANNELS_LIST = [
-    "breakevens", "spurstg", "bluecityzens", "manutd_one", "lexusarsenal", "sixELCE", "astonvillago",
+    "breakevens", "spurstg", "manutd_one", "transferyi", "fabrizio_transfery", "city_manchesters", "lexusarsenal", "sixELCE", "astonvillago",
     "tg_barca", "ZZoneRM", "psgdot", "FcMilanItaly", "Vstakane", "LaligaOfficial_rus", "SportEPL", "tg_epl",
     "bundesliga_live", "wearethearsenal", "tg_calcio", "italianfootbol", "bundesligas1",
     "fcbarca_sports", "englishntvplus", "sportsrufootball", "real_sports", "atleticosmadrid",
@@ -28,7 +28,7 @@ CHANNELS = sorted(list(set(CHANNELS_LIST)))
 
 # === ДОБАВЛЕНО/ОБНОВЛЕНО: Фразы для фильтрации рекламы/спама ===
 SPAM_PHRASES = [
-    "каппер", "прогноз на матч", "бесплатно", "заработок", "ФРИБЕТ", "фрибет", "налетай", "подписка", 
+    "каппер", "прогноз на матч", "бесплатно", "заработок", "ФРИБЕТ", "фрибет", "налетай", "Конкурс", "КОНКУРС", "Розыгрыш", "РОЗЫГРЫШ", "подписка", 
     "договорной матч", "слив инфы", "бот для ставок", "криптовалюта", "трейдинг", "платная инфа", 
     "подписаться", "подпишись", "подпишитесь", "экспресс", "ординар", "коэффициент", "коэф", 
     "проходимость", "железка", "аналитика", "раскрутка счета", "плюсовой аккаунт", "гарантии выигрыша", 
