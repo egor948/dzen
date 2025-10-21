@@ -47,6 +47,10 @@ jobs:
           GOOGLE_CSE_ID: ${{ secrets.GOOGLE_CSE_ID }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           
+          # ⬇️⬇️⬇️ ДОБАВЛЕНО: Секреты для РЕЗЕРВНОГО API ⬇️⬇️⬇️
+          GOOGLE_CSE_ID_2: ${{ secrets.GOOGLE_CSE_ID_2 }}
+          GOOGLE_API_KEY_2: ${{ secrets.GOOGLE_API_KEY_2 }}
+          
           # Секреты для Telegram (постер)
           GITHUB_REPOSITORY: ${{ github.repository }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
