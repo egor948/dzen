@@ -669,10 +669,10 @@ async def run_rss_generator():
     if final_candidates: 
         print(f"Начинаем обработку {len(final_candidates)} уникальных сюжетов-кандидатов...")
         for storyline in final_candidates: 
-            if len(processed_storylines) >= 5:
-                print("Уже набрано 5 статей, прекращаем обработку сюжетов."); break
+            if len(processed_storylines) >= 6:
+                print("Уже набрано 6 статей, прекращаем обработку сюжетов."); break
             
-            if len(storyline.get("news_texts", "")) < 50:
+            if len(storyline.get("news_texts", "")) < 25:
                 continue
             storyline_with_article = write_article_for_storyline(storyline)
             if not storyline_with_article: continue
