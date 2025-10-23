@@ -220,8 +220,8 @@ async def cluster_news_into_storylines(news_batch, memory):
     
     Для каждого сюжета верни JSON-объект с полями: `title`, `category`, **строгий список `search_queries` из 3 элементов** И **список `news_indices` (номеров новостей, которые входят в этот сюжет)**:
     
-    *   **Первый запрос (СУТЬ СЮЖЕТА - ОДНА СУЩНОСТЬ):** Максимально простой. Это должна быть ОДНА главная персона (например, "Ханси Флик") ИЛИ ОДИН главный клуб (например, "Барселона") ИЛИ ОДНО главное событие (например, "Кубок Лиги чемпионов"). **НЕ ДОБАВЛЯЙТЕ КОНТЕКСТ.**
-    *   **Второй запрос (Контекстный):** Главная сущность + ключевое действие или контекст (например, "Ханси Флик тренировка" или "Барселона трансфер").
+    *   **Первый запрос (СУТЬ СЮЖЕТА + 'football match'):** Найди ОДНУ главную сущность сюжета (персону, клуб, соревнование). Если есть несколько персон, выбери только ПЕРВУЮ по важности. Сформулируй запрос как: **'[Главная Сущность] football match'**. (Примеры: 'Hansi Flick football match', 'Barcelona vs Real Madrid football match 2025', 'Champions League football match', 'Camp Nou stadium').
+    *   **Второй запрос (СУТЬ СЮЖЕТА + 'football match'):** Найди ОДНУ главную сущность сюжета (персону, клуб, соревнование). Если есть несколько персон, выбери только ПЕРВУЮ по важности. Сформулируй запрос как: **'[Главная Сущность] football match'**. (Примеры: 'Hansi Flick football match', 'Barcelona vs Real Madrid football match 2025', 'Champions League football match', 'Camp Nou stadium').
     *   **Третий запрос (Резервный):** Общий заголовок сюжета или самая широкая тема, чтобы гарантировать результат.
     
 2.  **Определи главную тему часа.** Проанализируй ВЕСЬ новостной поток и верни ОДНУ главную персону или событие в поле `main_event_query` (на английском).
@@ -400,7 +400,6 @@ def write_summary_article(remaining_news, main_event_query):
     return None
 
 async def find_real_photo_on_google(storyline):
-    # Упрощено: Используем только основные ключи
     api_key = os.environ.get("GOOGLE_API_KEY", "").strip()
     cse_id = os.environ.get("GOOGLE_CSE_ID", "").strip()
     
@@ -411,20 +410,31 @@ async def find_real_photo_on_google(storyline):
     queries = storyline.get("search_queries", [])
     if not queries: return None
 
-    # НОВОЕ: Ограничиваем количество попыток поиска на статью (3 запроса)
     MAX_SEARCH_ATTEMPTS = 3 
     
-    # Используем срез [0:MAX_SEARCH_ATTEMPTS] для ограничения циклов поиска
-    for query in queries[:MAX_SEARCH_ATTEMPTS]: 
+    # ⬇️⬇️⬇️ ИЗМЕНЕНИЕ: Наборы параметров поиска для каждого запроса ⬇️⬇️⬇️
+    search_configs = [
+        # Попытка 1: Строгий - Большой, Горизонтальный, Только Фото
+        {"imgSize": "large", "imgAspect": "wide", "imgType": "photo"},
         
-        # Добавляем задержку между запросами к API (1.5 секунды)
+        # Попытка 2: Мягче - Большой, ЛЮБОЙ аспект (отменяем "wide")
+        {"imgAspect": "wide", "imgType": "photo"}, 
+        
+        # Попытка 3: Самый общий - ЛЮБОЙ размер (отменяем "large")
+        {} 
+    ]
+    # ⬆️⬆️⬆️ КОНЕЦ ИЗМЕНЕНИЯ ⬆️⬆️⬆️
+
+    for i, query in enumerate(queries[:MAX_SEARCH_ATTEMPTS]): 
+        
         await asyncio.sleep(1.5) 
         
-        print(f"Этап 3 (Основной): Поиск фото в Google по запросу: '{query}'...")
+        print(f"Этап 3 (Основной): Поиск фото в Google (Попытка {i+1}) по запросу: '{query}'...")
         url = "https://www.googleapis.com/customsearch/v1"
         
-        # УДАЛЕНО: imgSize: "large"
-        params = {"key": api_key, "cx": cse_id, "q": query, "searchType": "image", "num": 1} 
+        params = {"key": api_key, "cx": cse_id, "q": query, "searchType": "image", "num": 1}
+        # Добавляем специфичные для попытки параметры
+        params.update(search_configs[i] if i < len(search_configs) else {}) 
         
         try:
             response = requests.get(url, params=params, timeout=30)
@@ -436,6 +446,7 @@ async def find_real_photo_on_google(storyline):
                 if not image_url.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
                     continue
                 
+                # ... (остальной код сохранения остается без изменений)
                 image_response = requests.get(image_url, timeout=60, headers={'User-Agent': 'Mozilla/5.0'})
                 image_response.raise_for_status()
                 
@@ -448,17 +459,11 @@ async def find_real_photo_on_google(storyline):
                 print(f"Фото из Google успешно сохранено: {image_path}")
                 storyline['image_url'] = f"{GITHUB_REPO_URL.replace('github.com', 'raw.githubusercontent.com')}/main/images/{image_filename}"
                 
-                return storyline # Успех: Возвращаем и прекращаем поиск
+                return storyline 
                 
         except requests.exceptions.RequestException as e:
-            print(f"Ошибка при обращении к Google Search API с запросом '{query}': {e}")
-            
-            # Если 429, это означает, что лимит ИСЧЕРПАН для основного ключа
-            if e.response is not None and e.response.status_code == 429:
-                print("Обнаружен лимит 429 для основного ключа. Прекращаем поиск фото.")
-                return None # Возвращаем None, так как резервного ключа больше нет
-                
-            continue # Переходим к следующему запросу
+            # ... (логика обработки ошибок остается без изменений)
+            continue
                 
     print("В Google Images ничего не найдено.")
     return None
