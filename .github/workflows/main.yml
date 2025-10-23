@@ -40,11 +40,10 @@ jobs:
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           
-          # Секреты для Google Image Search (Основной и Резервный)
+          # Секреты для Google Image Search (Основной)
           GOOGLE_CSE_ID: ${{ secrets.GOOGLE_CSE_ID }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          GOOGLE_CSE_ID_2: ${{ secrets.GOOGLE_CSE_ID_2 }}
-          GOOGLE_API_KEY_2: ${{ secrets.GOOGLE_API_KEY_2 }}
+          # ⬇️⬇️⬇️ УДАЛЕНЫ РЕЗЕРВНЫЕ КЛЮЧИ ⬇️⬇️⬇️
           
           # Секреты для Telegram (постер)
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -57,14 +56,9 @@ jobs:
           git config user.name "GitHub Actions Bot"
           git config user.email "actions@github.com"
           git add .
-          
-          # ⬇️⬇️⬇️ ИЗМЕНЕНИЕ ЗДЕСЬ: УДАЛЕНО exit 0 из блока 'if' ⬇️⬇️⬇️
           if [ -z "$(git status --porcelain)" ]; then
             echo "No changes to commit. Skipping push. (Telegram post will still attempt to run if content was generated)."
           fi
-          
-          # Условный коммит: если нет изменений, эта команда не выполнит push, 
-          # но не остановит workflow.
           git commit -m "🗞️ Auto-update RSS feed" || echo "No files changed, nothing to commit."
           git push
 
@@ -75,7 +69,7 @@ jobs:
           sleep 15
 
       - name: 7. Post to Telegram
-        # Этот шаг теперь всегда запускается, если только предыдущие шаги не упали.
+        # Этот шаг всегда запускается, если только предыдущие шаги не упали.
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHANNEL_USERNAME: ${{ secrets.TELEGRAM_CHANNEL_USERNAME }}
