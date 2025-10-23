@@ -682,17 +682,26 @@ async def run_rss_generator():
     processed_storylines = []
     used_news_for_digest = set()
     
-    # ИСПОЛЬЗУЕМ final_candidates вместо all_storyline_candidates:
+   # ИСПОЛЬЗУЕМ final_candidates вместо all_storyline_candidates:
     if final_candidates: 
         print(f"Начинаем обработку {len(final_candidates)} уникальных сюжетов-кандидатов...")
-        for storyline in final_candidates: 
+        for i, storyline in enumerate(final_candidates): 
+            print(f"--- [Начало обработки сюжета #{i+1}/{len(final_candidates)}] ---") # Новый лог
             if len(processed_storylines) >= 5:
                 print("Уже набрано 5 статей, прекращаем обработку сюжетов."); break
             
-            if len(storyline.get("news_texts", "")) < 25:
+            news_texts = storyline.get("news_texts", "")
+            if len(news_texts) < 25:
+                print(f"   --> ⚠️ Сюжет '{storyline.get('title')}' пропущен: текст новостей слишком короткий ({len(news_texts)} символов).") # Новый лог
                 continue
+            
+            print(f"   --> Текст новостей для сюжета: {news_texts[:100]}... (Длина: {len(news_texts)} символов)") # Новый лог
+            
             storyline_with_article = write_article_for_storyline(storyline)
-            if not storyline_with_article: continue
+            
+            if not storyline_with_article: 
+                print(f"   --> ❌ Сюжет '{storyline.get('title')}' провален: write_article_for_storyline вернула None.") # Новый лог
+                continue
 
             used_news_for_digest.update(storyline.get("news_texts", "").split("\n\n---\n\n"))
             final_storyline = await find_real_photo_on_google(storyline_with_article)
