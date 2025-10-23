@@ -373,72 +373,65 @@ def write_summary_article(remaining_news, main_event_query):
     return None
 
 async def find_real_photo_on_google(storyline):
-    # Извлекаем основной и резервный ключи из переменных окружения
-    API_KEYS = [
-        (os.environ.get("GOOGLE_API_KEY", "").strip(), os.environ.get("GOOGLE_CSE_ID", "").strip()),
-        (os.environ.get("GOOGLE_API_KEY_2", "").strip(), os.environ.get("GOOGLE_CSE_ID_2", "").strip())
-    ]
+    # Упрощено: Используем только основные ключи
+    api_key = os.environ.get("GOOGLE_API_KEY", "").strip()
+    cse_id = os.environ.get("GOOGLE_CSE_ID", "").strip()
     
-    # Отфильтровываем пустые пары (например, если резервный ключ не был настроен)
-    VALID_KEYS = [k for k in API_KEYS if k[0] and k[1]]
-    
-    if not VALID_KEYS:
-        print("Ключи Google Search API не найдены/настроены.")
+    if not api_key or not cse_id:
+        print("Основной ключ Google Search API не найден.")
         return None
         
     queries = storyline.get("search_queries", [])
     if not queries: return None
 
-    # НОВОЕ: Ограничиваем количество попыток поиска на статью
+    # НОВОЕ: Ограничиваем количество попыток поиска на статью (3 запроса)
     MAX_SEARCH_ATTEMPTS = 3 
     
-    for api_key, cse_id in VALID_KEYS:
-        is_backup = (api_key == API_KEYS[1][0] if len(API_KEYS) > 1 else False)
-        print(f"Поиск с использованием {'резервного' if is_backup else 'основного'} ключа...")
+    # Используем срез [0:MAX_SEARCH_ATTEMPTS] для ограничения циклов поиска
+    for query in queries[:MAX_SEARCH_ATTEMPTS]: 
         
-        # Используем срез [0:MAX_SEARCH_ATTEMPTS] для ограничения циклов поиска
-        for query in queries[:MAX_SEARCH_ATTEMPTS]: 
+        # Добавляем задержку между запросами к API (1.5 секунды)
+        await asyncio.sleep(1.5) 
+        
+        print(f"Этап 3 (Основной): Поиск фото в Google по запросу: '{query}'...")
+        url = "https://www.googleapis.com/customsearch/v1"
+        
+        # УДАЛЕНО: imgSize: "large"
+        params = {"key": api_key, "cx": cse_id, "q": query, "searchType": "image", "num": 1} 
+        
+        try:
+            response = requests.get(url, params=params, timeout=30)
+            response.raise_for_status()
+            data = response.json()
             
-            # Добавляем задержку между запросами к API (1.5 секунды)
-            await asyncio.sleep(1.5) 
-            
-            print(f"Этап 3 (Основной): Поиск фото в Google по запросу: '{query}'...")
-            url = "https://www.googleapis.com/customsearch/v1"
-            params = {"key": api_key, "cx": cse_id, "q": query, "searchType": "image", "num": 1}
-            
-            try:
-                response = requests.get(url, params=params, timeout=30)
-                response.raise_for_status()
-                data = response.json()
+            if "items" in data and data["items"]:
+                image_url = data["items"][0]["link"]
+                if not image_url.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+                    continue
                 
-                if "items" in data and data["items"]:
-                    image_url = data["items"][0]["link"]
-                    if not image_url.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
-                        continue
-                    
-                    image_response = requests.get(image_url, timeout=60, headers={'User-Agent': 'Mozilla/5.0'})
-                    image_response.raise_for_status()
-                    
-                    os.makedirs(IMAGE_DIR, exist_ok=True)
-                    timestamp = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
-                    image_filename = f"{timestamp}.jpg"
-                    image_path = os.path.join(IMAGE_DIR, image_filename)
-                    with open(image_path, "wb") as f: f.write(image_response.content)
-                    
-                    print(f"Фото из Google успешно сохранено: {image_path}")
-                    storyline['image_url'] = f"{GITHUB_REPO_URL.replace('github.com', 'raw.githubusercontent.com')}/main/images/{image_filename}"
-                    
-                    return storyline # Успех: Возвращаем и прекращаем поиск
-                    
-            except requests.exceptions.RequestException as e:
-                print(f"Ошибка при обращении к Google Search API с запросом '{query}': {e}")
+                image_response = requests.get(image_url, timeout=60, headers={'User-Agent': 'Mozilla/5.0'})
+                image_response.raise_for_status()
                 
-                # НОВОЕ: Если 429, это означает, что лимит ИСЧЕРПАН, и мы ПРЕКРАЩАЕМ поиск с ТЕКУЩИМ ключом.
-                if e.response is not None and e.response.status_code == 429:
-                    print(f"Обнаружен лимит 429 для {'резервного' if is_backup else 'основного'} ключа. Переход к следующему ключу (если есть).")
-                    break # Выход из внутреннего цикла (по запросам), переход к внешнему циклу (по ключам)
-                    
-                continue # Переход к следующему запросу с ТЕКУЩИМ ключом
+                os.makedirs(IMAGE_DIR, exist_ok=True)
+                timestamp = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+                image_filename = f"{timestamp}.jpg"
+                image_path = os.path.join(IMAGE_DIR, image_filename)
+                with open(image_path, "wb") as f: f.write(image_response.content)
+                
+                print(f"Фото из Google успешно сохранено: {image_path}")
+                storyline['image_url'] = f"{GITHUB_REPO_URL.replace('github.com', 'raw.githubusercontent.com')}/main/images/{image_filename}"
+                
+                return storyline # Успех: Возвращаем и прекращаем поиск
+                
+        except requests.exceptions.RequestException as e:
+            print(f"Ошибка при обращении к Google Search API с запросом '{query}': {e}")
+            
+            # Если 429, это означает, что лимит ИСЧЕРПАН для основного ключа
+            if e.response is not None and e.response.status_code == 429:
+                print("Обнаружен лимит 429 для основного ключа. Прекращаем поиск фото.")
+                return None # Возвращаем None, так как резервного ключа больше нет
+                
+            continue # Переходим к следующему запросу
                 
     print("В Google Images ничего не найдено.")
     return None
