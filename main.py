@@ -307,28 +307,22 @@ def write_article_for_storyline(storyline):
 *   **НИКОГДА** не используй формальные подзаголовки ("Введение", "Заключение", "Анализ").
 *   **НИКОГДА** не используй Markdown (`#`, `*`). Только HTML-теги `<b>` и `</b>` для жирного шрифта.
 *   **НИКОГДА** не добавляй дисклеймеры или примечания.
-*   
+
 НОВОСТНЫЕ СВОДКИ ДЛЯ АНАЛИЗА И ПЕРЕРАБОТКИ:
 ---
 {news_content}
 ---
 """
     
-    # ⬇️⬇️⬇️ ИЗМЕНЕНИЕ: ДВЕ ПОПЫТКИ ГЕНЕРАЦИИ С ЗАДЕРЖКОЙ ⬇️⬇️⬇️
-    raw_article_text = None
-    for attempt in range(2):
-        raw_article_text = _call_gemini_ai(prompt, max_tokens=3500)
-        if raw_article_text:
-            break
-        print(f"Попытка {attempt+1} генерации статьи не удалась. Повтор через 5 секунд.")
-        if attempt == 0:
-            time.sleep(5) # Только для первой попытки, чтобы не задерживать финальный сбой
+    # ⬇️⬇️⬇️ ИЗМЕНЕНИЕ: ОДНА ПОПЫТКА ГЕНЕРАЦИИ С ЛОГИРОВАНИЕМ ⬇️⬇️⬇️
+    print(f"   --> Начинаем генерацию статьи для сюжета: '{storyline['title']}'...")
+    raw_article_text = _call_gemini_ai(prompt, max_tokens=3500)
             
     if not raw_article_text: 
-        # ⬇️⬇️⬇️ ДОБАВЛЕННЫЙ ЛОГ: ⬇️⬇️⬇️
         print(f"❌❌❌ СИСТЕМНАЯ ОШИБКА: Не удалось сгенерировать статью для сюжета: '{storyline.get('title')}'. ПРОПУСК СЮЖЕТА.")
-        # print(f"НЕУДАЧНЫЙ NEWS_CONTENT: {news_content[:500]}...") # Раскомментируйте для полного анализа, что именно блокирует AI
-        return None # <--- Если обе попытки (1+2) завершились неудачно/пустым ответом
+        return None 
+    
+    print(f"   --> ✅ Статья успешно сгенерирована.")
     # ⬆️⬆️⬆️ КОНЕЦ ИЗМЕНЕНИЯ ⬆️⬆️⬆️
     
     cleaned_article_text = clean_ai_artifacts(raw_article_text)
@@ -343,17 +337,18 @@ def write_article_for_storyline(storyline):
             
     is_bad_title = len(title) > 120 or (len(title.split()) > 1 and sum(1 for word in title.split() if word and word[0].isupper()) / len(title.split()) > 0.6)
     if is_bad_title:
-        print(f"Обнаружен плохой заголовок: '{title}'. Запрашиваем новый...")
+        print(f"   --> Обнаружен плохой заголовок: '{title}'. Запрашиваем новый...")
         remake_prompt = f"Придумай короткий (5-10 слов), интригующий и понятный заголовок на русском языке для этой статьи:\n\n{cleaned_article_text}"
         new_title_response = _call_gemini_ai(remake_prompt, max_tokens=150)
         
         if new_title_response:
             new_title = new_title_response.strip().replace('"', '')
-            print(f"Новый заголовок: '{new_title}'")
+            print(f"   --> Новый заголовок: '{new_title}'")
             body_lines = lines[body_start_index:] if body_start_index != -1 and body_start_index < len(lines) else []
             body = '\n'.join(body_lines).strip()
             storyline['article'] = f"{new_title}\n{body}"
         else:
+            print(f"   --> ⚠️ Не удалось переделать заголовок для сюжета: '{storyline['title']}'. Используем исходный текст.")
             storyline['article'] = cleaned_article_text
     else:
         storyline['article'] = cleaned_article_text
