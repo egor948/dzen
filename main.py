@@ -185,13 +185,21 @@ def _call_gemini_ai(prompt, max_tokens=2048, use_json_mode=False):
         safety_settings = {'HARM_CATEGORY_HARASSMENT': 'BLOCK_NONE', 'HARM_CATEGORY_HATE_SPEECH': 'BLOCK_NONE', 'HARM_CATEGORY_SEXUALLY_EXPLICIT': 'BLOCK_NONE', 'HARM_CATEGORY_DANGEROUS_CONTENT': 'BLOCK_NONE'}
         generation_config = genai.types.GenerationConfig(max_output_tokens=max_tokens, temperature=0.7, response_mime_type="application/json" if use_json_mode else "text/plain")
         response = model.generate_content(prompt, generation_config=generation_config, safety_settings=safety_settings)
+        
+        # ⬇️⬇️⬇️ ИЗМЕНЕНИЕ ДЛЯ ЛОГИРОВАНИЯ СБОЕВ ⬇️⬇️⬇️
         if response.parts:
             return response.text
         else:
-            print(f"Gemini вернул пустой ответ. Причина: {response.candidates[0].finish_reason.name if response.candidates else 'Неизвестно'}")
+            reason = response.candidates[0].finish_reason.name if response.candidates and response.candidates[0].finish_reason else 'Неизвестно'
+            block_details = response.candidates[0].safety_ratings if response.candidates else 'N/A'
+            print(f"❌ Gemini НЕ СМОГ СГЕНЕРИРОВАТЬ ТЕКСТ. Причина: {reason}. Детали блокировки: {block_details}")
+            # Если вам нужно увидеть полный промпт, раскомментируйте следующую строку:
+            # print(f"ПРОМПТ, ВЫЗВАВШИЙ СБОЙ (ОБРЕЗАН): {prompt[:500]}...")
             return None
+        # ⬆️⬆️⬆️ КОНЕЦ ИЗМЕНЕНИЯ ⬇️⬇️⬇️
+
     except Exception as e:
-        print(f"Ошибка при обращении к Gemini API: {e}"); return None
+        print(f"❌ Ошибка при обращении к Gemini API: {e}"); return None
 
 def clean_ai_artifacts(text):
     text = re.sub(r'^\s*#+\s*', '', text, flags=re.MULTILINE)
@@ -316,7 +324,11 @@ def write_article_for_storyline(storyline):
         if attempt == 0:
             time.sleep(5) # Только для первой попытки, чтобы не задерживать финальный сбой
             
-    if not raw_article_text: return None 
+    if not raw_article_text: 
+        # ⬇️⬇️⬇️ ДОБАВЛЕННЫЙ ЛОГ: ⬇️⬇️⬇️
+        print(f"❌❌❌ СИСТЕМНАЯ ОШИБКА: Не удалось сгенерировать статью для сюжета: '{storyline.get('title')}'. ПРОПУСК СЮЖЕТА.")
+        # print(f"НЕУДАЧНЫЙ NEWS_CONTENT: {news_content[:500]}...") # Раскомментируйте для полного анализа, что именно блокирует AI
+        return None # <--- Если обе попытки (1+2) завершились неудачно/пустым ответом
     # ⬆️⬆️⬆️ КОНЕЦ ИЗМЕНЕНИЯ ⬆️⬆️⬆️
     
     cleaned_article_text = clean_ai_artifacts(raw_article_text)
