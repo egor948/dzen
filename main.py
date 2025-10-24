@@ -330,7 +330,7 @@ def write_article_for_storyline(storyline):
     
     # ⬇️⬇️⬇️ ИЗМЕНЕНИЕ: ОДНА ПОПЫТКА ГЕНЕРАЦИИ С ЛОГИРОВАНИЕМ ⬇️⬇️⬇️
     print(f"   --> Начинаем генерацию статьи для сюжета: '{storyline['title']}'...")
-    raw_article_text = _call_gemini_ai(prompt, max_tokens=3500)
+    raw_article_text = _call_gemini_ai(prompt, max_tokens=4000)
             
     if not raw_article_text: 
         print(f"❌❌❌ СИСТЕМНАЯ ОШИБКА: Не удалось сгенерировать статью для сюжета: '{storyline.get('title')}'. ПРОПУСК СЮЖЕТА.")
