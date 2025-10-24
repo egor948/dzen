@@ -68,7 +68,7 @@ jobs:
           echo "Waiting for 15 seconds to allow files to become available via raw URL..."
           sleep 15
 
-     - name: 7. Post to Telegram
+      - name: 7. Post to Telegram
         # Этот шаг всегда запускается, если только предыдущие шаги не упали.
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
