@@ -46,6 +46,10 @@ CF_ACCOUNT_ID = os.environ.get("CF_ACCOUNT_ID", "").strip()
 CF_API_TOKEN = os.environ.get("CF_API_TOKEN", "").strip()
 GOOGLE_CSE_ID = os.environ.get("GOOGLE_CSE_ID", "").strip()
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "").strip()
+# === ДОБАВЛЕНО/ОБНОВЛЕНО: API Ключи VK ===
+VK_ACCESS_TOKEN = os.environ.get("VK_ACCESS_TOKEN", "").strip()
+VK_OWNER_ID = os.environ.get("VK_OWNER_ID", "").strip() # ID группы со знаком минус (-123456789)
+# ==========================================
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHANNEL_USERNAME = os.environ.get("TELEGRAM_CHANNEL_USERNAME", "").strip()
 
@@ -614,6 +618,112 @@ def run_telegram_poster(storylines_json):
             print(f"❌ Ошибка публикации статьи '{title}' в Telegram: {e}")
             if e.response is not None: print(f"Ответ сервера Telegram: {e.response.text}")
 
+def run_vk_poster(storylines_json):
+    print("Запуск публикации в VK...")
+    if not VK_ACCESS_TOKEN or not VK_OWNER_ID: 
+        print("Ключи VK не найдены. Публикация в VK пропущена."); return
+    
+    API_VERSION = '5.199'
+    VK_API_URL = "https://api.vk.com/method/"
+    
+    try:
+        storylines = json.loads(storylines_json)
+    except json.JSONDecodeError: 
+        print("Ошибка декодирования JSON для VK."); return
+
+    for storyline in storylines:
+        article_text = storyline.get('article')
+        image_url = storyline.get('image_url') 
+        
+        if not article_text: continue
+        
+        lines = article_text.strip().split('\n')
+        title, start_of_body_index = "", 0
+        for i, line in enumerate(lines):
+            if line.strip():
+                title = line.strip().replace("**", "").replace('"', '')
+                start_of_body_index = i + 1
+                break
+        
+        if not title: continue
+        full_text = '\n'.join(lines[start_of_body_index:]).strip()
+        
+        # 1. Формируем текст поста (VK не поддерживает HTML-теги <b>)
+        # Заменяем HTML-теги на жирный шрифт, который имитируется в VK (символ, но в данном случае лучше просто текст)
+        post_text = f"{title}\n\n{full_text.replace('<b>', '').replace('</b>', '')}" 
+        if len(post_text) > 4096: post_text = post_text[:4093] + "..." # Лимит VK 4096
+
+        photo_attachment = ""
+        if image_url:
+            try:
+                # 1.1. Получаем URL для загрузки фото
+                upload_url_response = requests.get(
+                    f"{VK_API_URL}photos.getWallUploadServer",
+                    params={'group_id': VK_OWNER_ID.replace('-', ''), 'access_token': VK_ACCESS_TOKEN, 'v': API_VERSION},
+                    timeout=30
+                ).json()
+                
+                if 'response' not in upload_url_response or 'upload_url' not in upload_url_response['response']:
+                    raise Exception(f"Не удалось получить URL для загрузки: {upload_url_response.get('error', 'Unknown Error')}")
+                
+                upload_url = upload_url_response['response']['upload_url']
+
+                # 1.2. Скачиваем фото
+                image_data = requests.get(image_url, timeout=60).content
+                
+                # 1.3. Загружаем фото на сервер VK
+                files = {'photo': ('image.jpg', image_data, 'image/jpeg')}
+                upload_response = requests.post(upload_url, files=files, timeout=60).json()
+                
+                if 'photo' not in upload_response or 'server' not in upload_response:
+                    raise Exception(f"Ошибка загрузки фото в VK: {upload_response}")
+                
+                # 1.4. Сохраняем фото и получаем attachment ID
+                save_response = requests.get(
+                    f"{VK_API_URL}photos.saveWallPhoto",
+                    params={
+                        'group_id': VK_OWNER_ID.replace('-', ''),
+                        'photo': upload_response['photo'],
+                        'server': upload_response['server'],
+                        'hash': upload_response['hash'],
+                        'access_token': VK_ACCESS_TOKEN,
+                        'v': API_VERSION
+                    },
+                    timeout=30
+                ).json()
+
+                if 'response' not in save_response or not save_response['response']:
+                    raise Exception(f"Не удалось сохранить фото: {save_response.get('error', 'Unknown Error')}")
+                    
+                photo_info = save_response['response'][0]
+                photo_attachment = f"photo{photo_info['owner_id']}_{photo_info['id']}"
+
+            except Exception as e:
+                print(f"❌ Ошибка загрузки фото для VK для статьи '{title}': {e}")
+                photo_attachment = "" # Продолжаем постинг без фото
+
+        # 2. Постинг записи на стену
+        params = {
+            'owner_id': VK_OWNER_ID,
+            'message': post_text,
+            'attachments': photo_attachment,
+            'from_group': 1, # Публикация от имени группы
+            'access_token': VK_ACCESS_TOKEN,
+            'v': API_VERSION
+        }
+        
+        try:
+            response = requests.post(f"{VK_API_URL}wall.post", params=params, timeout=60)
+            response.raise_for_status()
+            response_data = response.json()
+            if 'response' in response_data:
+                print(f"✅ Статья '{title}' успешно опубликована в VK.")
+            else:
+                raise Exception(f"Ошибка API VK: {response_data.get('error', {}).get('error_msg', 'Unknown Error')}")
+                
+        except Exception as e:
+            print(f"❌ Ошибка публикации статьи '{title}' в VK: {e}")
+
 async def run_rss_generator():
     """Основная логика генерации RSS и изображений."""
     title_memory = {}
@@ -805,5 +915,8 @@ if __name__ == "__main__":
             storylines_json_env = os.environ.get("PROCESSED_STORYLINES_JSON")
             if storylines_json_env:
                 run_telegram_poster(storylines_json_env)
+                 # ⬇️⬇️⬇️ ДОБАВЛЕНО ⬇️⬇️⬇️
+                run_vk_poster(storylines_json_env)
+                # ⬆️⬆️⬆️ КОНЕЦ ДОБАВЛЕНО ⬆️⬆️⬆️
     else:
         print("Режим работы не указан.")
