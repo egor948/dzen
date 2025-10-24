@@ -74,7 +74,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHANNEL_USERNAME: ${{ secrets.TELEGRAM_CHANNEL_USERNAME }}
           PROCESSED_STORYLINES_JSON: ${{ steps.generate.outputs.processed_storylines_json }}
-          # ⬇️⬇️⬇️ ДОБАВИТЬ ЭТО ЗДЕСЬ ОБЯЗАТЕЛЬНО! ⬇️⬇️⬇️
+         
           VK_ACCESS_TOKEN: ${{ secrets.VK_ACCESS_TOKEN }}
           VK_OWNER_ID: ${{ secrets.VK_OWNER_ID }}
           
