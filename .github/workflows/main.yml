@@ -35,11 +35,6 @@ jobs:
           API_HASH: ${{ secrets.API_HASH }}
           SESSION_STRING: ${{ secrets.SESSION_STRING }}
 
-          # ⬇️⬇️⬇️ ДОБАВЛЕНО ДЛЯ VK ⬇️⬇️⬇️
-          VK_ACCESS_TOKEN: ${{ secrets.VK_ACCESS_TOKEN }}
-          VK_OWNER_ID: ${{ secrets.VK_OWNER_ID }}
-          # ⬆️⬆️⬆️ ДОБАВЛЕНО ДЛЯ VK ⬆️⬆️⬆️
-          
           # Секреты для AI
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
@@ -73,10 +68,14 @@ jobs:
           echo "Waiting for 15 seconds to allow files to become available via raw URL..."
           sleep 15
 
-      - name: 7. Post to Telegram
+     - name: 7. Post to Telegram
         # Этот шаг всегда запускается, если только предыдущие шаги не упали.
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHANNEL_USERNAME: ${{ secrets.TELEGRAM_CHANNEL_USERNAME }}
           PROCESSED_STORYLINES_JSON: ${{ steps.generate.outputs.processed_storylines_json }}
+          # ⬇️⬇️⬇️ ДОБАВИТЬ ЭТО ЗДЕСЬ ОБЯЗАТЕЛЬНО! ⬇️⬇️⬇️
+          VK_ACCESS_TOKEN: ${{ secrets.VK_ACCESS_TOKEN }}
+          VK_OWNER_ID: ${{ secrets.VK_OWNER_ID }}
+          # ⬆️⬆️⬆️ ⬆️⬆️⬆️ ⬆️⬆️⬆️ ⬆️⬆️⬆️ ⬆️⬆️⬆️
         run: python main.py --mode post_to_telegram
