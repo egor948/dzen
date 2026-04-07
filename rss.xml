@@ -2154,7 +2154,11 @@
   
   
   
+  
+  
   <channel>
+    
+    
     
     
     
@@ -6464,7 +6468,11 @@
     
     
     
+    
+    
     <link>https://github.com/egor948/dzen</link>
+    
+    
     
     
     
@@ -10774,10 +10782,39 @@
     
     
     
+    
+    
     <item>
-      <title>Сегодня есть только один матч: Спортинг против Арсенала</title>
+      <title>Ноттингем Форест летит в Португалию: Что задумали?</title>
       <link>https://github.com/egor948/dzen</link>
+      <category>Матчи</category>
+      <yandex:full-text>&quot;Ноттингем Форест&quot; готовится к большой поездке! Клуб анонсировал неожиданный перелет в Португалию. Эта новость уже наделала шуму среди фанатов.
+
+&lt;b&gt;Когда ждать команду в Португалии?&lt;/b&gt;
+
+Точная дата и время известны. &quot;Лесники&quot; отправятся в путь 9 апреля 2026 года. Прибытие в Португалию запланировано на 22:00 по московскому времени.
+
+&lt;b&gt;Что скрывается за этой поездкой?&lt;/b&gt;
+
+Пока официальных подробностей мало. Возможно, это закрытый тренировочный сбор. Или же подготовка к важному международному матчу.
+
+Одно ясно: &quot;Форест&quot; не просто так летит через всю Европу. Команда явно преследует серьезные цели.</yandex:full-text>
+      <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775559544.jpg" type="image/jpeg"/>
+      <pubDate>Tue, 07 Apr 2026 10:59:05 GMT</pubDate>
+      <guid isPermaLink="false">5355595067431170775</guid>
+    </item>
+    <item>
+      
+      
+      <title>Сегодня есть только один матч: Спортинг против Арсенала</title>
+      
+      
+      <link>https://github.com/egor948/dzen</link>
+      
+      
       <category>Анонс Матча</category>
+      
+      
       <yandex:full-text>Забудьте о других планах на вечер. Если вы думали, что сегодня есть выбор, что посмотреть, то вы ошибались. Весь футбольный мир замирает в ожидании только одного события.
 
 &lt;b&gt;Почему все смотрят только сюда?&lt;/b&gt;
@@ -10787,14 +10824,32 @@
 &lt;b&gt;Никаких компромиссов!&lt;/b&gt;
 
 Все прочие варианты для просмотра сегодня просто не существуют. Сегодняшний вечер полностью посвящен этому эпическому поединку. Приготовьтесь к невероятному зрелищу.</yandex:full-text>
+      
+      
       <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775556130.jpg" type="image/jpeg"/>
+      
+      
       <pubDate>Tue, 07 Apr 2026 10:02:38 GMT</pubDate>
+      
+      
       <guid isPermaLink="false">-1934220108547863342</guid>
+      
+    
     </item>
+    
+    
     <item>
+      
+      
       <title>Холанд: один в поле воин? Шокирующая статистика «Сити»!</title>
+      
+      
       <link>https://github.com/egor948/dzen</link>
+      
+      
       <category>Клубные Новости</category>
+      
+      
       <yandex:full-text>Забудьте о командной игре! В «Манчестер Сити» появился настоящий монстр, который забивает больше, чем целая армия его одноклубников. Новые данные о бомбардирах «горожан» шокируют.
 
 Норвежский феномен Эрлинг Холанд снова доказывает свой статус. На его счету уже 33 гола в текущем сезоне. Это абсолютное лидерство и отрыв, который не снился никому.
@@ -10810,14 +10865,32 @@
 Суммарно все эти игроки, от Фодена до Мармуша, забили 48 голов. Холанд, в одиночку, обеспечил почти половину всех этих мячей. Его вклад в атаку «Сити» просто беспрецедентен.
 
 Эта статистика красноречиво говорит о зависимости «Манчестер Сити» от одного игрока. Холанд не просто бомбардир, он – двигатель всей атаки, без которого представить команду уже невозможно.</yandex:full-text>
+      
+      
       <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775556145.jpg" type="image/jpeg"/>
+      
+      
       <pubDate>Tue, 07 Apr 2026 10:02:38 GMT</pubDate>
+      
+      
       <guid isPermaLink="false">6669032368192526635</guid>
+      
+    
     </item>
+    
+    
     <item>
+      
+      
       <title>Магуайр – олицетворение МЮ? Мощное заявление шокировало фанатов!</title>
+      
+      
       <link>https://github.com/egor948/dzen</link>
+      
+      
       <category>Игроки и Трансферы</category>
+      
+      
       <yandex:full-text>Джейсон Уилкокс, один из ключевых руководителей «Манчестер Юнайтед», сделал заявление, которое взбудоражило весь футбольный мир. Он прямо назвал Харри Магуайра воплощением всего, что нужно клубу!
 
 &lt;b&gt;Почему Магуайр так важен для «Красных дьяволов»?&lt;/b&gt;
@@ -10827,20 +10900,38 @@
 &lt;b&gt;Какова его роль в новой команде?&lt;/b&gt;
 
 Харри становится опорой для молодой и амбициозной команды. Он несет в себе тот дух, который поможет клубу двигаться вперед. Это не просто игрок, а настоящий лидер.</yandex:full-text>
+      
+      
       <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775556157.jpg" type="image/jpeg"/>
+      
+      
       <pubDate>Tue, 07 Apr 2026 10:02:38 GMT</pubDate>
+      
+      
       <guid isPermaLink="false">8961382955145600736</guid>
+      
+    
     </item>
+    
+    
     <item>
+      
+      
       
       
       <title>&lt;b&gt;Мадрид раскрыл тайну: что будет с Хаусеном на самом деле?&lt;/b&gt;</title>
       
       
+      
+      
       <link>https://github.com/egor948/dzen</link>
       
       
+      
+      
       <category>Клубные новости / Трансферы</category>
+      
+      
       
       
       <yandex:full-text>В Мадриде приняли неожиданное решение по 20-летнему защитнику Хаусену. Несмотря на огромные надежды, клуб не спешит выпускать новичка в основной состав прямо сейчас.
@@ -10854,28 +10945,46 @@
 Поэтому в ближайшее время основную пару центральных защитников составят проверенные бойцы. В сердце обороны &quot;Мадрида&quot; будут стоять Эдер Милитао и Антонио Рюдигер.</yandex:full-text>
       
       
+      
+      
       <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775549308.jpg" type="image/jpeg"/>
+      
+      
       
       
       <pubDate>Tue, 07 Apr 2026 08:10:15 GMT</pubDate>
       
       
+      
+      
       <guid isPermaLink="false">-5447168597784924691</guid>
       
+      
+    
     
     </item>
+    
+    
     
     
     <item>
       
       
+      
+      
       <title>Кто настоящий король ЛЧ по голевым моментам?</title>
+      
+      
       
       
       <link>https://github.com/egor948/dzen</link>
       
       
+      
+      
       <category>Статистика / Лига Чемпионов</category>
+      
+      
       
       
       <yandex:full-text>В Лиге Чемпионов есть игроки, которые не просто забивают, но и создают магию. Они — настоящие архитекторы атак, чьи передачи разрезают оборону и дарят шансы на гол. Именно такие мастера определяют лицо современного футбола.
@@ -10889,28 +10998,46 @@
 Чтобы оказаться в числе лидеров по этому показателю, нужно обладать не только виртуозной техникой, но и уникальным видением поля. Эти футболисты — мозг и сердце своих команд, без которых атака просто не работает. Они дарят болельщикам красоту и эффективность, определяя исход ключевых матчей.</yandex:full-text>
       
       
+      
+      
       <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775549346.jpg" type="image/jpeg"/>
+      
+      
       
       
       <pubDate>Tue, 07 Apr 2026 08:10:15 GMT</pubDate>
       
       
+      
+      
       <guid isPermaLink="false">-113179984419943024</guid>
       
+      
+    
     
     </item>
+    
+    
     
     
     <item>
       
       
+      
+      
       <title>YouTube читает мысли? Мозг взломан: жуткое совпадение!</title>
+      
+      
       
       
       <link>https://github.com/egor948/dzen</link>
       
       
+      
+      
       <category>Аналитика / Тактика</category>
+      
+      
       
       
       <yandex:full-text>Только что подумал о редком голе «Арсенала» с углового, и тут же YouTube подкинул разбор угловых от Лукомского. Это не случайность?
@@ -10924,28 +11051,46 @@
 Такое ощущение, что алгоритмы давно перестали просто анализировать поиски. Теперь они словно считывают наши внутренние запросы, превращаясь в цифровых телепатов. Или это просто невероятное стечение обстоятельств? Вопрос остается открытым, но одно ясно: цифровой мир становится пугающе умным.</yandex:full-text>
       
       
+      
+      
       <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775549371.jpg" type="image/jpeg"/>
+      
+      
       
       
       <pubDate>Tue, 07 Apr 2026 08:10:15 GMT</pubDate>
       
       
+      
+      
       <guid isPermaLink="false">-7749283389803193176</guid>
       
+      
+    
     
     </item>
+    
+    
     
     
     <item>
       
       
+      
+      
       <title>£100 миллионов за Андерсона: МЮ и Сити в гонке!</title>
+      
+      
       
       
       <link>https://github.com/egor948/dzen</link>
       
       
+      
+      
       <category>Трансферы</category>
+      
+      
       
       
       <yandex:full-text>&quot;Ноттингем Форест&quot; готов сорвать куш! За полузащитника Эллиота Андерсона клуб хочет от 100 до 120 миллионов фунтов стерлингов. Это невероятная сумма, и два гиганта АПЛ уже на низком старте.
@@ -10961,25 +11106,41 @@
 Пока ни один из грандов напрямую не обращался к &quot;Ноттингем Форест&quot;. Но если верить инсайдеру Флориану Плеттенбергу, битва за Эллиота Андерсона обещает быть жаркой. Такая цена за игрока может взорвать трансферный рынок!</yandex:full-text>
       
       
+      
+      
       <pubDate>Tue, 07 Apr 2026 08:10:15 GMT</pubDate>
+      
+      
       
       
       <guid isPermaLink="false">-8603739735251960208</guid>
       
+      
+    
     
     </item>
+    
+    
     
     
     <item>
       
       
+      
+      
       <title>Гол Дзанетти против «Лацио»: почему он вошел в историю?</title>
+      
+      
       
       
       <link>https://github.com/egor948/dzen</link>
       
       
+      
+      
       <category>Исторические Моменты</category>
+      
+      
       
       
       <yandex:full-text>Представьте: на календаре 2024 год, а мир футбола до сих пор вспоминает мяч, забитый в далеком 1998-м. Именно так обстоят дела с шедевром Хавьера Дзанетти, который до сих пор называют «Голом дня».
@@ -10999,19 +11160,31 @@
 Даже спустя десятилетия, этот удар продолжает вдохновлять и напоминать, что настоящий футбольный гений не имеет срока годности. Это тот самый «Гол дня», который остается таковым навсегда.</yandex:full-text>
       
       
+      
+      
       <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775549414.jpg" type="image/jpeg"/>
+      
+      
       
       
       <pubDate>Tue, 07 Apr 2026 08:10:15 GMT</pubDate>
       
       
+      
+      
       <guid isPermaLink="false">837532816057489722</guid>
       
+      
+    
     
     </item>
     
     
+    
+    
     <item>
+      
+      
       
       
       
@@ -11021,12 +11194,18 @@
       
       
       
+      
+      
       <link>https://github.com/egor948/dzen</link>
       
       
       
       
+      
+      
       <category>Injuries</category>
+      
+      
       
       
       
@@ -11048,7 +11227,11 @@
       
       
       
+      
+      
       <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775475799.jpg" type="image/jpeg"/>
+      
+      
       
       
       
@@ -11058,12 +11241,18 @@
       
       
       
+      
+      
       <guid isPermaLink="false">-8281881930280906631</guid>
       
       
+      
+    
     
     
     </item>
+    
+    
     
     
     
@@ -11073,7 +11262,11 @@
       
       
       
+      
+      
       <title>Шок в Бундеслиге: Как судья «проглядел» чистую красную карточку?</title>
+      
+      
       
       
       
@@ -11083,7 +11276,11 @@
       
       
       
+      
+      
       <category>Refereeing</category>
+      
+      
       
       
       
@@ -11109,7 +11306,11 @@
       
       
       
+      
+      
       <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775475814.jpg" type="image/jpeg"/>
+      
+      
       
       
       
@@ -11119,12 +11320,18 @@
       
       
       
+      
+      
       <guid isPermaLink="false">9184849068289313142</guid>
       
       
+      
+    
     
     
     </item>
+    
+    
     
     
     
@@ -11134,7 +11341,11 @@
       
       
       
+      
+      
       <title>Лидер обороны Брайтона выбывает на два матча!</title>
+      
+      
       
       
       
@@ -11144,7 +11355,11 @@
       
       
       
+      
+      
       <category>Player Discipline</category>
+      
+      
       
       
       
@@ -11162,7 +11377,11 @@
       
       
       
+      
+      
       <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775475827.jpg" type="image/jpeg"/>
+      
+      
       
       
       
@@ -11172,12 +11391,18 @@
       
       
       
+      
+      
       <guid isPermaLink="false">-4073275246702860885</guid>
       
       
+      
+    
     
     
     </item>
+    
+    
     
     
     
@@ -11187,7 +11412,11 @@
       
       
       
+      
+      
       <title>Педрероль: не бегает – убирай с поля!</title>
+      
+      
       
       
       
@@ -11197,7 +11426,11 @@
       
       
       
+      
+      
       <category>Coaching &amp; Team Dynamics</category>
+      
+      
       
       
       
@@ -11221,7 +11454,11 @@
       
       
       
+      
+      
       <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775475841.jpg" type="image/jpeg"/>
+      
+      
       
       
       
@@ -11231,12 +11468,18 @@
       
       
       
+      
+      
       <guid isPermaLink="false">-6804494539385277842</guid>
       
       
+      
+    
     
     
     </item>
+    
+    
     
     
     
@@ -11246,7 +11489,11 @@
       
       
       
+      
+      
       <title>Невероятный прорыв: эти игроки взорвали сборную тура L'Équipe!</title>
+      
+      
       
       
       
@@ -11256,7 +11503,11 @@
       
       
       
+      
+      
       <category>Awards &amp; Recognition</category>
+      
+      
       
       
       
@@ -11276,7 +11527,11 @@
       
       
       
+      
+      
       <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775475853.jpg" type="image/jpeg"/>
+      
+      
       
       
       
@@ -11286,9 +11541,13 @@
       
       
       
+      
+      
       <guid isPermaLink="false">-1953714483096040852</guid>
       
       
+      
+    
     
     
     </item>
@@ -11296,7 +11555,11 @@
     
     
     
+    
+    
     <item>
+      
+      
       
       
       
@@ -11310,6 +11573,8 @@
       
       
       
+      
+      
       <link>https://github.com/egor948/dzen</link>
       
       
@@ -11317,7 +11582,11 @@
       
       
       
+      
+      
       <category>Аналитика</category>
+      
+      
       
       
       
@@ -11353,7 +11622,11 @@
       
       
       
+      
+      
       <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775469735.jpg" type="image/jpeg"/>
+      
+      
       
       
       
@@ -11367,14 +11640,20 @@
       
       
       
+      
+      
       <guid isPermaLink="false">4222720364242073710</guid>
       
       
       
+      
+    
     
     
     
     </item>
+    
+    
     
     
     
@@ -11388,7 +11667,11 @@
       
       
       
+      
+      
       <title>Милитао вернулся. И сразу на Баварию: шок для всех!</title>
+      
+      
       
       
       
@@ -11402,7 +11685,11 @@
       
       
       
+      
+      
       <category>Трансферы и слухи</category>
+      
+      
       
       
       
@@ -11424,7 +11711,11 @@
       
       
       
+      
+      
       <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775469746.jpg" type="image/jpeg"/>
+      
+      
       
       
       
@@ -11438,14 +11729,20 @@
       
       
       
+      
+      
       <guid isPermaLink="false">2491659179489488966</guid>
       
       
       
+      
+    
     
     
     
     </item>
+    
+    
     
     
     
@@ -11459,7 +11756,11 @@
       
       
       
+      
+      
       <title>Брайтон нацелился на новую звезду? Молодой защитник уже в списке!</title>
+      
+      
       
       
       
@@ -11473,7 +11774,11 @@
       
       
       
+      
+      
       <category>Трансферы и слухи</category>
+      
+      
       
       
       
@@ -11493,7 +11798,11 @@
       
       
       
+      
+      
       <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775469759.jpg" type="image/jpeg"/>
+      
+      
       
       
       
@@ -11507,14 +11816,20 @@
       
       
       
+      
+      
       <guid isPermaLink="false">2730799983833612098</guid>
       
       
       
+      
+    
     
     
     
     </item>
+    
+    
     
     
     
@@ -11528,7 +11843,11 @@
       
       
       
+      
+      
       <title>Раздевалка сошла с ума: Балотелли снова зажигает!</title>
+      
+      
       
       
       
@@ -11542,7 +11861,11 @@
       
       
       
+      
+      
       <category>Клубные новости</category>
+      
+      
       
       
       
@@ -11562,7 +11885,11 @@
       
       
       
+      
+      
       <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775469778.jpg" type="image/jpeg"/>
+      
+      
       
       
       
@@ -11576,14 +11903,20 @@
       
       
       
+      
+      
       <guid isPermaLink="false">157906545207128982</guid>
       
       
       
+      
+    
     
     
     
     </item>
+    
+    
     
     
     
@@ -11597,7 +11930,11 @@
       
       
       
+      
+      
       <title>После ПСЖ: Команда Киву сделала шокирующее заявление!</title>
+      
+      
       
       
       
@@ -11611,7 +11948,11 @@
       
       
       
+      
+      
       <category>Club News</category>
+      
+      
       
       
       
@@ -11635,7 +11976,11 @@
       
       
       
+      
+      
       <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775469795.jpg" type="image/jpeg"/>
+      
+      
       
       
       
@@ -11649,10 +11994,14 @@
       
       
       
+      
+      
       <guid isPermaLink="false">5114415242914827163</guid>
       
       
       
+      
+    
     
     
     
@@ -11663,7 +12012,11 @@
     
     
     
+    
+    
     <item>
+      
+      
       
       
       
@@ -11681,6 +12034,8 @@
       
       
       
+      
+      
       <link>https://github.com/egor948/dzen</link>
       
       
@@ -11690,7 +12045,11 @@
       
       
       
+      
+      
       <category>Club Performance</category>
+      
+      
       
       
       
@@ -11718,7 +12077,11 @@
       
       
       
+      
+      
       <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775463614.jpg" type="image/jpeg"/>
+      
+      
       
       
       
@@ -11736,16 +12099,22 @@
       
       
       
+      
+      
       <guid isPermaLink="false">-4352909748500203615</guid>
       
       
       
       
+      
+    
     
     
     
     
     </item>
+    
+    
     
     
     
@@ -11763,7 +12132,11 @@
       
       
       
+      
+      
       <title>200 матчей за «Интер»! Дюмфрис вошел в историю клуба?</title>
+      
+      
       
       
       
@@ -11781,7 +12154,11 @@
       
       
       
+      
+      
       <category>Player News</category>
+      
+      
       
       
       
@@ -11813,7 +12190,11 @@
       
       
       
+      
+      
       <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775463631.jpg" type="image/jpeg"/>
+      
+      
       
       
       
@@ -11831,16 +12212,22 @@
       
       
       
+      
+      
       <guid isPermaLink="false">6409053215705971957</guid>
       
       
       
       
+      
+    
     
     
     
     
     </item>
+    
+    
     
     
     
@@ -11858,7 +12245,11 @@
       
       
       
+      
+      
       <title>100 голов: «Бавария» уничтожает конкурентов!</title>
+      
+      
       
       
       
@@ -11876,7 +12267,11 @@
       
       
       
+      
+      
       <category>Statistics</category>
+      
+      
       
       
       
@@ -11913,7 +12308,11 @@
       
       
       
+      
+      
       <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775463644.jpg" type="image/jpeg"/>
+      
+      
       
       
       
@@ -11931,16 +12330,22 @@
       
       
       
+      
+      
       <guid isPermaLink="false">2094440434231390065</guid>
       
       
       
       
+      
+    
     
     
     
     
     </item>
+    
+    
     
     
     
@@ -11958,7 +12363,11 @@
       
       
       
+      
+      
       <title>&lt;b&gt;Мбаппе под прицелом: фанат запустил сайт, считающий его зарплату!&lt;/b&gt;</title>
+      
+      
       
       
       
@@ -11976,7 +12385,11 @@
       
       
       
+      
+      
       <category>Player Performance</category>
+      
+      
       
       
       
@@ -12008,7 +12421,11 @@
       
       
       
+      
+      
       <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775463658.jpg" type="image/jpeg"/>
+      
+      
       
       
       
@@ -12026,16 +12443,22 @@
       
       
       
+      
+      
       <guid isPermaLink="false">8011783853958050073</guid>
       
       
       
       
+      
+    
     
     
     
     
     </item>
+    
+    
     
     
     
@@ -12053,7 +12476,11 @@
       
       
       
+      
+      
       <title>Шок: Звезду «Барсы» затравили на поле. Что сказали фанаты?</title>
+      
+      
       
       
       
@@ -12071,7 +12498,11 @@
       
       
       
+      
+      
       <category>Fan Culture / Social Issues</category>
+      
+      
       
       
       
@@ -12097,7 +12528,11 @@
       
       
       
+      
+      
       <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775463668.jpg" type="image/jpeg"/>
+      
+      
       
       
       
@@ -12115,11 +12550,15 @@
       
       
       
+      
+      
       <guid isPermaLink="false">5091875699817421402</guid>
       
       
       
       
+      
+    
     
     
     
@@ -12133,7 +12572,11 @@
     
     
     
+    
+    
     <item>
+      
+      
       
       
       
@@ -12155,6 +12598,8 @@
       
       
       
+      
+      
       <link>https://github.com/egor948/dzen</link>
       
       
@@ -12166,7 +12611,11 @@
       
       
       
+      
+      
       <category>Футбол</category>
+      
+      
       
       
       
@@ -12198,7 +12647,11 @@
       
       
       
+      
+      
       <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775381522.jpg" type="image/jpeg"/>
+      
+      
       
       
       
@@ -12220,18 +12673,24 @@
       
       
       
+      
+      
       <guid isPermaLink="false">5411442684309255594</guid>
       
       
       
       
       
+      
+    
     
     
     
     
     
     </item>
+    
+    
     
     
     
@@ -12253,7 +12712,11 @@
       
       
       
+      
+      
       <title>Думфрис: «Интер – это семья!» И вот почему они побеждают.</title>
+      
+      
       
       
       
@@ -12275,7 +12738,11 @@
       
       
       
+      
+      
       <category>Футбол</category>
+      
+      
       
       
       
@@ -12305,7 +12772,11 @@
       
       
       
+      
+      
       <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775381536.jpg" type="image/jpeg"/>
+      
+      
       
       
       
@@ -12327,18 +12798,24 @@
       
       
       
+      
+      
       <guid isPermaLink="false">-7571060026839876642</guid>
       
       
       
       
       
+      
+    
     
     
     
     
     
     </item>
+    
+    
     
     
     
@@ -12360,7 +12837,11 @@
       
       
       
+      
+      
       <title>Англия: Пасха уже наступила!</title>
+      
+      
       
       
       
@@ -12382,7 +12863,11 @@
       
       
       
+      
+      
       <category>Общество</category>
+      
+      
       
       
       
@@ -12410,7 +12895,11 @@
       
       
       
+      
+      
       <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775381556.jpg" type="image/jpeg"/>
+      
+      
       
       
       
@@ -12432,18 +12921,24 @@
       
       
       
+      
+      
       <guid isPermaLink="false">-5684543275680257257</guid>
       
       
       
       
       
+      
+    
     
     
     
     
     
     </item>
+    
+    
     
     
     
@@ -12465,7 +12960,11 @@
       
       
       
+      
+      
       <title>Легенды возвращаются? Дель Пьеро и Мальдини метят в президенты FIGC!</title>
+      
+      
       
       
       
@@ -12487,7 +12986,11 @@
       
       
       
+      
+      
       <category>Football Governance</category>
+      
+      
       
       
       
@@ -12523,7 +13026,11 @@
       
       
       
+      
+      
       <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775381567.jpg" type="image/jpeg"/>
+      
+      
       
       
       
@@ -12545,18 +13052,24 @@
       
       
       
+      
+      
       <guid isPermaLink="false">7736447860382294900</guid>
       
       
       
       
       
+      
+    
     
     
     
     
     
     </item>
+    
+    
     
     
     
@@ -12578,7 +13091,11 @@
       
       
       
+      
+      
       <title>Флик о Ямале: «Он был зол!»</title>
+      
+      
       
       
       
@@ -12600,7 +13117,11 @@
       
       
       
+      
+      
       <category>Player Performance</category>
+      
+      
       
       
       
@@ -12636,7 +13157,11 @@
       
       
       
+      
+      
       <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775381578.jpg" type="image/jpeg"/>
+      
+      
       
       
       
@@ -12658,12 +13183,16 @@
       
       
       
+      
+      
       <guid isPermaLink="false">-9000019799234856428</guid>
       
       
       
       
       
+      
+    
     
     
     
@@ -12680,7 +13209,11 @@
     
     
     
+    
+    
     <item>
+      
+      
       
       
       
@@ -12706,6 +13239,8 @@
       
       
       
+      
+      
       <link>https://github.com/egor948/dzen</link>
       
       
@@ -12719,7 +13254,11 @@
       
       
       
+      
+      
       <category>Лига Чемпионов</category>
+      
+      
       
       
       
@@ -12759,6 +13298,8 @@
       
       
       
+      
+      
       <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775378071.jpg" type="image/jpeg"/>
       
       
@@ -12772,7 +13313,11 @@
       
       
       
+      
+      
       <pubDate>Sun, 05 Apr 2026 08:35:42 GMT</pubDate>
+      
+      
       
       
       
@@ -12792,6 +13337,8 @@
       
       
       
+      
+    
     
     
     
@@ -12801,137 +13348,6 @@
     </item>
     
     
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    <item>
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      <title>Монако – Марсель: кто возьмет важные очки?</title>
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      <link>https://github.com/egor948/dzen</link>
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      <category>Лига 1</category>
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      <yandex:full-text>Сегодня вечером, 5 апреля, вся футбольная Франция прикует взгляды к &quot;Стад Луи II&quot;. Там состоится одно из ключевых противостояний 28-го тура Лиги 1: &quot;Монако&quot; против &quot;Марселя&quot;.
-
-Для обеих команд на кону стоит нечто большее, чем просто три очка. Это битва за стратегически важную победу!
-
-&lt;b&gt;Почему этот матч важен?&lt;/b&gt;
-
-Это не просто очередной тур чемпионата. И &quot;Монако&quot;, и &quot;Марсель&quot; стремятся к своим целям в сезоне.
-
-Исход этой встречи может серьезно повлиять на их дальнейший путь в Лиге 1. Болельщики ждут бескомпромиссной борьбы.
-
-&lt;b&gt;Где и когда смотреть?&lt;/b&gt;
-
-Не пропустите это захватывающее зрелище!
-
-• Матч пройдет на домашней арене &quot;Монако&quot; – &quot;Стад Луи II&quot;.
-• Начало запланировано на 21:45 по московскому времени.
-• Приготовьтесь к футбольному вечеру, который обещает быть жарким!</yandex:full-text>
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      <enclosure url="https://raw.githubusercontent.com/egor948/dzen/main/images/1775378092.jpg" type="image/jpeg"/>
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      <pubDate>Sun, 05 Apr 2026 08:35:42 GMT</pubDate>
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      <guid isPermaLink="false">-4095036087322498669</guid>
-      
-      
-      
-      
-      
-      
-    
-    
-    
-    
-    
-    
-    </item>
     
     
     
@@ -14022,6 +14438,8 @@
   
   
   
+  
+
 
 
 
